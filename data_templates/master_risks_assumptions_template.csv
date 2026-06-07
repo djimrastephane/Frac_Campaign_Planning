@@ -1,0 +1,35 @@
+Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Days,Simulation Impact
+Campaign Setup,Wells per pad,Random input,N/A,5,5,6,Defines number of pads
+Campaign Setup,Stages per well,Random input,N/A,5,6,8,Defines total stages
+Campaign Setup,Temperature log stages,Random input,N/A,1,1,2,Adds logging time
+Campaign Setup,SCMT offline,Random input,0.8,N/A,N/A,N/A,"If No, SCMT blocks frac readiness"
+Base Operation,SCMT duration,Duration,N/A,0.5,1,2,Pre-frac readiness
+Base Operation,Scraper / cleanout run,Duration,N/A,0.25,0.5,1.5,Well preparation
+Base Operation,Frac days per stage,Historical,N/A,1.03,1.93,9.26,Main frac duration
+Base Operation,Temperature log duration,Duration,N/A,0.1,0.25,0.5,Added for selected stages
+Base Operation,Isolation plug duration,Duration,N/A,0.1,0.25,0.5,Added after final stage
+Base Operation,Milling days per plug,Historical,N/A,0.36,0.68,1.43,Post-frac milling workload
+Technical Risk,Plug pressure test failure,Risk,0.05,0.25,0.5,1,Possible contingency plug
+Technical Risk,Screen out,Risk,0.03,0.25,0.5,2,"Screen out; possible extra stage and remedial treatment"
+Technical Risk,Premature plug set,Risk,0.02,0.5,1,2,Extra wireline run
+Technical Risk,Perforation gun misfire,Risk,0.03,0.1,0.25,0.5,Re-run guns
+Technical Risk,UPCT failure,Risk,0.02,0.25,0.5,1,CCL run required
+Technical Risk,Cement in casing,Risk,0.01,1,2,4,Extra cleanout
+Technical Risk,Cement above plug,Risk,0.01,0.5,1,2,Remedial intervention
+Technical Risk,Isolation plug failure,Risk,0.01,0.5,1,3,Additional plug
+Technical Risk,Electrical connection issue,Risk,0.03,0.25,0.5,1,Troubleshooting
+Technical Risk,Surface equipment failure,Risk,0.03,0.25,0.75,2,Repair and retest
+Resource Risk,Wireline crew unavailable,Risk,0.08,0.5,1,2,Waiting on crew
+Resource Risk,CT unit unavailable,Risk,0.05,0.5,1,3,Delayed cleanout
+Resource Risk,Milling unit unavailable,Risk,0.05,0.5,1,2,Milling backlog
+Resource Risk,Frac fleet downtime,Risk,0.04,0.5,1,3,Reduced pumping time
+Resource Risk,Logging crew unavailable,Risk,0.03,0.25,0.5,1,Delayed temperature logs
+Resource Risk,Plug inventory shortage,Risk,0.02,0.5,1,3,Material delay
+Resource Risk,Explosives delivery delay,Risk,0.02,0.5,1,2,Cannot perforate
+External Risk,Permit / regulatory delay,Risk,0.02,1,3,10,Work suspended
+External Risk,Site access restriction,Risk,0.03,0.5,2,5,Crew movement affected
+External Risk,Weather delay,Risk,0.05,0.25,1,4,Operations paused
+External Risk,Security restriction,Risk,0.01,1,3,7,Work suspended
+External Risk,Lockdown / travel restriction,Risk,0.01,2,5,15,Crew movement affected
+External Risk,Camp capacity issue,Risk,0.02,0.5,1,3,Crew rotation delay
+External Risk,Vendor mobilization delay,Risk,0.03,0.5,1.5,5,Service not available

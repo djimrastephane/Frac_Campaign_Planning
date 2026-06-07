@@ -1,0 +1,14 @@
+﻿WellID,PadID,ActivityType,CompletionType,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,JobDays,FracDays,SCMTDays,MillingDays,ProppantLbs,FracDaysPerStage,MillingDaysPerPlug
+Well_001,Pad_01,Frac,Completion,4,4,0,0,17.7,0,0,0,0,0,0
+Well_002,Pad_01,Frac,Completion,1,1,0,0,29.92,0,0,0.89,0,0,0
+Well_003,Pad_02,Frac,Completion,6,6,6,0,65.79,55.54,0,0,862778,9.26,0
+Well_004,Pad_02,Frac,Completion,7,7,7,0,97.83,30,0.42,4.69,1640264,4.29,0.67
+Well_005,Pad_03,Frac,Completion,4,4,4,0,36.48,18.93,0.75,5.73,942363,4.73,1.43
+Well_006,Pad_03,Frac,Completion,6,5,6,0,14.83,8.84,0.5,0,1364306,1.77,0
+Well_007,Pad_01,Frac,Completion,9,9,11,2,23.06,14.65,0.71,0,2146323,1.63,0
+Well_008,Pad_01,Frac,Completion,7,7,9,2,19.6,13.48,0.33,8.27,1214248,1.93,0.92
+Well_009,Pad_01,Frac,Completion,9,9,13,4,24.75,20.05,0.78,0,2185326,2.23,0
+Well_010,Pad_04,Frac,Completion,6,6,8,0,46.29,20.14,0.63,6.76,1475260,3.36,0.85
+Well_011,Pad_04,Frac,Completion,6,6,6,0,12.74,6.71,0,3.1,1437937,1.12,0.52
+Well_012,Pad_04,Frac,Completion,7,7,7,0,20.54,7.23,0.48,4.76,1501143,1.03,0.68
+Well_013,Pad_04,Frac,Completion,7,7,8,1,23.82,12.78,0.5,2.85,1529112,1.83,0.36
