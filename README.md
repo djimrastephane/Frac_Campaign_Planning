@@ -23,6 +23,8 @@ This project provides a data-driven framework for:
 - Campaign acceleration and investment ranking
 - Constraint cascade analysis (sequential bottleneck resolution)
 - Automated optimum-scenario search (Pareto frontier)
+- Probability of meeting a target completion date or staying within a budget ceiling
+- Traceable, re-simulation-verified recommendations with an auto-generated management narrative
 - Decision support before execution
 
 ---
@@ -56,16 +58,44 @@ The model tracks five resources independently. Each has its own unit count, work
 
 ## Decision Support
 - Executive KPI dashboard with readiness score and its drivers
-- Critical bottleneck narrative and recommended actions
+- **Decision support tab** — a single consolidated view for go/no-go decisions:
+  - **Management summary**: an auto-generated narrative paragraph stitching together the recommendation, the current bottleneck, and the risk/uncertainty outlook into one management-readable statement
+  - **Recommendation panel**: an evidence-based "why" panel for the top resource addition (current utilization, bottleneck status, days saved, incremental cost, ROI), with a **"Verify by re-simulation"** button that re-runs the simulation to confirm the instant analytic estimate
+  - **Risk prediction table**: per-risk probability of occurrence, expected delay, P90 delay, and likelihood/impact rating, optionally evaluated against a target completion date
+  - **Uncertainty table**: P10/P50/P90 by mode plus probability of finishing by a target date, probability of staying within a budget ceiling, probability of resource overload, and P50 cost
+  - **Constraint-relief cascade**: ranked list of which resource to relieve next and the cumulative days each successive fix recovers
 - Investment ranking: net benefit and ROI (days per $1M) of each proposed resource addition
-- **Constraint cascade analyser**: greedy sequential bottleneck resolution — answers what limits you now, what limits you after you fix it, and where each additional dollar generates the most schedule return
+- **Constraint cascade analyser** (Optimiser tab): greedy sequential bottleneck resolution — answers what limits you now, what limits you after you fix it, and where each additional dollar generates the most schedule return, with a waterfall chart of P50 duration after each fix
 - **Scenario optimiser**: grid search over resource configurations, common-random-number screening, Pareto frontier of duration vs total mobilisation cost, one-click apply of the recommended scenario
+- Optional **target duration** and **budget ceiling** sidebar inputs feed the risk prediction and uncertainty tables above
 
 ## Audit and Reporting
-- Executive PDF report (landscape, KPI dashboard, charts, styled tables, deployment timeline)
+- Executive PDF report (landscape, KPI dashboard, charts, styled tables, deployment timeline), with a prepended **Executive Decision Summary** page (management narrative, recommendation, bottleneck evidence, risk/uncertainty outlook)
 - Well-level audit trail, risk event log with consequence columns, assumptions-used table
 - Downloadable audit package (zip) with 18+ CSV exports
 - Input fidelity check: simulated vs historical distributions
+
+---
+
+# Screenshots
+
+### Overview — KPI dashboard
+![Overview tab](docs/images/screenshots/01_overview.png)
+
+### Decision support — narrative, recommendation, risk and uncertainty
+![Decision support tab](docs/images/screenshots/02_decision_support.png)
+
+### Risks — tornado and consequence propagation
+![Risks tab](docs/images/screenshots/03_risks.png)
+
+### Resources — utilization and deployment
+![Resources tab](docs/images/screenshots/04_resources.png)
+
+### Optimiser — constraint cascade and Pareto search
+![Optimiser tab](docs/images/screenshots/05_optimiser.png)
+
+### Workflow — operational sequence viewer
+![Workflow tab](docs/images/screenshots/06_workflow.png)
 
 ---
 
@@ -74,8 +104,6 @@ The model tracks five resources independently. Each has its own unit count, work
 This section documents the modelled equipment relationships and operation sequence so the logic can be verified against, and adapted to, your own operations.
 
 ## Equipment Relationship Map
-
-![Equipment Relationship Map](docs/images/equipment_map.svg)
 
 Key dependencies as modelled:
 
@@ -86,10 +114,6 @@ Key dependencies as modelled:
 - **Milling follows frac** and is scheduled discretely. Milling cannot start until a well is fully fraced AND a milling unit AND testing unit are both free. Wells are scheduled in frac-release order; later wells can begin milling while earlier wells are still in flowback.
 - **CT / cleanout is separate from milling.** CT cleanout is pre-frac well intervention. Milling is post-frac plug drill-out on a dedicated milling spread. These are tracked as separate resources with separate utilization. Use "Allow CT to support milling" only if your CT unit genuinely does plug drill-outs.
 - **Testing follows milling** per well. Each well's flowback + testing window starts when its milling completes AND a testing unit is free. The testing unit holds the resource during both milling (test confirmation) and flowback (pressure monitoring).
-
-## Operation Sequence per Well
-
-![Operation Sequence per Well](docs/images/operation_sequence.svg)
 
 ---
 
@@ -199,8 +223,6 @@ FRAC TREE CONSTRAINT:
 ## Risk Consequence Propagation
 
 Risks do not just add delay days. Each technical risk cascades into induced resource workload:
-
-![Risk Consequence Propagation](docs/images/consequence_propagation.svg)
 
 Default consequence library (per occurred event, overridable per-risk via CSV):
 
@@ -336,10 +358,15 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
               consequence summary · constraint cascade
               deployment timeline · Pareto optimiser
                      ▼
-   ┌──────────┬─────────────┬──────────────┬──────────┐
-   ▼          ▼             ▼              ▼          ▼
- Dashboard  Optimiser    PDF Report   Audit Package  Workflow
- (bslib)  (Cascade+Pareto) (executive) (zip 18+ CSV)  Viewer
+   Decision layer: traceable recommendations (+ verify by
+   re-simulation) · bottleneck explainability · risk
+   prediction · uncertainty (P-values) · management narrative
+                     ▼
+   ┌──────────┬──────────┬─────────────┬──────────────┬──────────┬──────────┐
+   ▼          ▼          ▼             ▼              ▼          ▼          ▼
+ Dashboard  Decision   Optimiser    PDF Report     Audit Pkg   Workflow
+ (bslib)    support   (Cascade+    (executive +    (zip 18+    Viewer
+            tab        Pareto)     decision page)  CSV)
 ```
 
 ---
@@ -348,7 +375,8 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
 
 | Tab | Contents |
 |---|---|
-| **Overview** | KPI value boxes (best option, P50/P90, zipper saving, readiness + drivers, bottleneck, idle cost), critical bottleneck narrative, investment ranking, S-curve, distribution, traffic lights |
+| **Overview** | KPI value boxes (best option, P50/P90, zipper saving, readiness + drivers, bottleneck, idle cost), investment ranking, S-curve, distribution, traffic lights |
+| **Decision support** | Management summary narrative, recommendation panel with "Verify by re-simulation", risk prediction table, uncertainty (P-values) table, constraint-relief cascade |
 | **Risks** | Tornado, consequence propagation (direct vs induced), top delay contributors, stage-level risks, detail tables |
 | **Resources** | Deployment timeline (Gantt-style), utilization, bottleneck detection, recommended actions, cost impact |
 | **Wireline & Readiness** | Stage-readiness constraint breakdown, readiness score |
@@ -447,6 +475,16 @@ Monte Carlo engine, historical duration extraction, risk framework, conventional
 - Workflow viewer and sequence documentation
 - Config-driven resource classification and consequence library
 - Strict numeric validation with row-level error messages
+
+## Version 2.5 — Decision Support Layer (Completed)
+- Traceable recommendation engine with an evidence-based "why" panel and one-click "Verify by re-simulation"
+- Bottleneck explainability: evidence chain (active work, utilization, queue-delay contribution) and a constraint-relief cascade ranked by recoverable days
+- Risk prediction: per-risk probability, expected delay, and P90 delay, evaluable against a target completion date
+- Uncertainty quantification: probability of finishing by a target date, staying within a budget ceiling, and resource overload risk
+- Decision narrative engine generating a single management-readable summary paragraph
+- New "Decision support" tab consolidating the above
+- Executive decision summary page prepended to the PDF report
+- Performance: bit-identical fast simulation engine and parallel scenario optimiser, keeping Standard/Audit modes and the grid-search optimiser responsive
 
 ## Version 3.0 — Resource Scheduling Engine (Planned)
 Discrete-event scheduling, true critical path, drilling programme integration, pad-to-pad resource movement, multi-fleet sequencing, schedule-accurate Gantt charts.
