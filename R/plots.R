@@ -131,21 +131,36 @@ plot_risk_tornado <- function(stage_risk_summary, top_n = 8) {
   if (is.null(stage_risk_summary) || nrow(stage_risk_summary) == 0) {
     return(ggplot() + labs(title = "No risk events triggered"))
   }
-  df <- stage_risk_summary %>%
-    group_by(risk_event) %>%
-    summarise(expected_delay = sum(expected_delay_days_per_campaign, na.rm = TRUE), .groups = "drop") %>%
-    slice_max(expected_delay, n = top_n) %>%
-    mutate(risk_event = reorder(wrap_lbl(risk_event), expected_delay))
 
-  ggplot(df, aes(expected_delay, risk_event)) +
-    geom_col(fill = "#D55E00", width = 0.7) +
+  # Select the top risk events by total expected delay (summed across modes),
+  # then break each one out by operation mode so Conventional and Zipper are
+  # shown as separate, comparable bars rather than a single combined total.
+  top_events <- stage_risk_summary %>%
+    group_by(risk_event) %>%
+    summarise(total_delay = sum(expected_delay_days_per_campaign, na.rm = TRUE), .groups = "drop") %>%
+    slice_max(total_delay, n = top_n) %>%
+    arrange(total_delay) %>%
+    mutate(risk_event_wrapped = wrap_lbl(risk_event))
+
+  df <- stage_risk_summary %>%
+    filter(risk_event %in% top_events$risk_event) %>%
+    group_by(operation_mode, risk_event) %>%
+    summarise(expected_delay = sum(expected_delay_days_per_campaign, na.rm = TRUE), .groups = "drop") %>%
+    mutate(risk_event = factor(wrap_lbl(risk_event), levels = top_events$risk_event_wrapped))
+
+  ggplot(df, aes(expected_delay, risk_event, fill = operation_mode)) +
+    geom_col(position = position_dodge2(preserve = "single", padding = 0.15), width = 0.7) +
     geom_text(aes(label = paste0(round(expected_delay, 1), " d")),
-              hjust = -0.15, size = 4.2, fontface = "bold") +
+              position = position_dodge2(width = 0.7, preserve = "single"),
+              hjust = -0.15, size = 3.6, fontface = "bold") +
+    scale_fill_mode() +
     scale_x_continuous(expand = expansion(mult = c(0, 0.18))) +
     labs(
       title = "Expected schedule impact per campaign",
+      subtitle = "By operation mode",
       x = "Expected delay, days / campaign",
-      y = NULL
+      y = NULL,
+      fill = NULL
     ) +
     theme_frac()
 }

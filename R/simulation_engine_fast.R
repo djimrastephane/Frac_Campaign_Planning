@@ -2672,6 +2672,26 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
       `Extra stages` = total_extra_stages
     )
 
+  stage_risk_summary <- summarise_stage_level_risks(risk_event_log, summary)
+  tornado_report <- if (nrow(stage_risk_summary) == 0) {
+    tibble::tibble(
+      Mode = character(), Category = character(), Risk = character(),
+      `Expected events/campaign` = character(), `Expected delay (d/campaign)` = character(),
+      `Mean delay when occurs` = character()
+    )
+  } else {
+    stage_risk_summary %>%
+      slice_max(expected_delay_days_per_campaign, n = 10, with_ties = FALSE) %>%
+      transmute(
+        Mode = operation_mode,
+        Category = category,
+        Risk = compact(risk_event, 42),
+        `Expected events/campaign` = fmt_num(expected_events_per_campaign, 2),
+        `Expected delay (d/campaign)` = fmt_days(expected_delay_days_per_campaign),
+        `Mean delay when occurs` = fmt_days(mean_delay_when_occurs)
+      )
+  }
+
   traffic_report <- traffic %>%
     tidyr::pivot_longer(
       cols = c(schedule_risk, resource_risk, operational_risk, wireline_constraint),
@@ -2918,6 +2938,8 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
                   x = NULL, y = "Total delay days across simulations", fill = NULL) +
     rpt_theme
 
+  tornado_p <- plot_risk_tornado(stage_risk_summary) + rpt_theme
+
   # --- Assemble pages --------------------------------------------------------
   grDevices::pdf(file, width = 11.69, height = 8.27, onefile = TRUE)
   on.exit(grDevices::dev.off(), add = TRUE)
@@ -2977,6 +2999,11 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
   new_page("Schedule Risk Drivers", "Top delay contributors across simulations")
   draw_plot_in(delay_p, x = 0.5, y = 0.6, w = 0.9, h = 0.55)
   draw_table_in(head(delay_report, 10), x = 0.5, y = 0.17, w = 0.94, h = 0.26)
+
+  # Page 7b: risk event tornado, split by operation mode
+  new_page("Risk Event Tornado", "Expected schedule impact per campaign, by operation mode")
+  draw_plot_in(tornado_p, x = 0.5, y = 0.6, w = 0.9, h = 0.55)
+  draw_table_in(tornado_report, x = 0.5, y = 0.17, w = 0.94, h = 0.26)
 
   # Page 8: notes
   new_page("Notes & Limitations")
