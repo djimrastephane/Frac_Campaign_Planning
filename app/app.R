@@ -34,6 +34,7 @@ source(file.path(project_root, "R", "optimiser_parallel.R"))
 source(file.path(project_root, "R", "risk_uncertainty.R"))
 source(file.path(project_root, "R", "bottleneck_explain.R"))
 source(file.path(project_root, "R", "recommendations.R"))
+source(file.path(project_root, "R", "robustness.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
 source(file.path(project_root, "R", "plots.R"))
@@ -269,7 +270,22 @@ ui <- page_sidebar(
              card_body(DT::DTOutput("uncertainty_table")))
       ),
       card(full_screen = TRUE, card_header("Constraint cascade - what to relieve next"),
-           card_body(DT::DTOutput("bottleneck_cascade_table")))
+           card_body(DT::DTOutput("bottleneck_cascade_table"))),
+
+      card(
+        full_screen = TRUE,
+        card_header("Recommendation robustness - is it sensitive to the planning assumptions?"),
+        card_body(
+          p(class = "text-muted",
+            "One-at-a-time check: nudges each assumption below by +-15% (holding everything ",
+            "else fixed) and re-runs a reduced-iteration simulation to see whether the ",
+            "recommended action and readiness verdict still hold."),
+          actionButton("run_robustness", "Check robustness",
+                       class = "btn-sm btn-primary mb-2", icon = icon("arrows-left-right")),
+          uiOutput("robustness_summary"),
+          DT::DTOutput("robustness_table")
+        )
+      )
     ),
 
     nav_panel(
@@ -728,6 +744,60 @@ server <- function(input, output, session) {
     a <- sim_results()$args_by_mode[[focus_mode_r()]]; a$progress_callback <- NULL
     generate_narrative(sim_results(), sim_args = a,
       target_days = .na_to_null(input$target_days), budget = .na_to_null(input$budget), rec = rec_v2_r())
+  })
+
+  # Recommendation robustness: OAT +-15% sweep over fixed sidebar assumptions,
+  # computed only on demand (button-triggered) since it re-runs the simulation
+  # ~10 times even at reduced iterations.
+  robustness_rv <- reactiveVal(NULL)
+  observeEvent(sim_results(), { robustness_rv(NULL) }, ignoreNULL = FALSE)  # new run clears old sweep
+  observeEvent(input$run_robustness, {
+    req(sim_results())
+    a <- sim_results()$args_by_mode[[focus_mode_r()]]
+    withProgress(message = "Checking recommendation robustness", value = 0.4, {
+      robustness_rv(assess_recommendation_robustness(
+        a,
+        frac_fleet_cost_per_day = input$frac_fleet_cost,
+        wireline_cost_per_day = input$wireline_cost,
+        ct_cost_per_day = input$ct_cost,
+        milling_cost_per_day = input$milling_cost,
+        testing_unit_cost_per_day = input$testing_unit_cost
+      ))
+    })
+  })
+  output$robustness_summary <- renderUI({
+    rb <- robustness_rv()
+    if (is.null(rb)) return(tags$p(class = "text-muted",
+      "Not yet run. Click \"Check robustness\" to test the current recommendation against +-15% swings in 5 key assumptions."))
+    n_unstable <- sum(!rb$summary$stable)
+    if (n_unstable == 0) {
+      tags$p(class = "text-success",
+        sprintf("Stable: \"%s\" holds across +-%.0f%% swings in all %d assumptions tested (n=%d iterations each).",
+                rb$base$recommendation, 100 * rb$perturb_pct, nrow(rb$summary), rb$n_iterations))
+    } else {
+      tags$p(class = "text-warning",
+        sprintf("Sensitive: the base recommendation is \"%s\", but it flips under a +-%.0f%% swing in %d of %d assumptions (n=%d iterations each) - see table for which ones.",
+                rb$base$recommendation, 100 * rb$perturb_pct, n_unstable, nrow(rb$summary), rb$n_iterations))
+    }
+  })
+  output$robustness_table <- DT::renderDT({
+    rb <- robustness_rv()
+    if (is.null(rb)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- rb$summary %>% dplyr::transmute(
+      Assumption = assumption,
+      `-15% value` = round(low_value, 3),
+      `-15% P50 (d)` = round(low_p50_days, 1),
+      `-15% Readiness` = low_readiness_status,
+      `Base value` = round(base_value, 3),
+      `Base P50 (d)` = round(base_p50_days, 1),
+      `Base Readiness` = base_readiness_status,
+      `+15% value` = round(high_value, 3),
+      `+15% P50 (d)` = round(high_p50_days, 1),
+      `+15% Readiness` = high_readiness_status,
+      `Recommendation stable?` = ifelse(stable, "Yes", "No"),
+      Note = note
+    )
+    DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE, pageLength = 10))
   })
 
   output$decision_narrative   <- renderUI({ req(sim_results()); tags$p(decision_narrative_r()$narrative) })
