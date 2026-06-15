@@ -883,7 +883,7 @@ server <- function(input, output, session) {
       comp_desc <- c(
         "Schedule certainty" = sprintf("P90 is %.0f d above P50 (%.0f%% wider)",
           rd_stats$p90_days - rd_stats$p50_days, 100 * rd$uncertainty_ratio),
-        "Resource capacity" = sprintf("peak utilization %.0f%%", 100 * rd$max_p90_utilization),
+        "Resource capacity" = sprintf("%s at %.0f%% P90 utilization", rd$non_frac_bottleneck, 100 * rd$non_frac_p90_utilization),
         "Risk exposure" = sprintf("risk events add ~%.0f d (%.0f%% of campaign)",
           rd_stats$mean_risk_delay_days, 100 * rd$risk_delay_ratio),
         "Wireline readiness" = sprintf("frac fleet idle ~%.0f d waiting on wireline (~%s)",

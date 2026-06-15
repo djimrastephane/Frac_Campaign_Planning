@@ -1814,16 +1814,31 @@ build_readiness_score <- function(summary, risk_event_log, resource_utilization)
     schedule_uncertainty = 250,  # 20% P90/P50 spread -> 50 schedule score
     risk_delay = 250,            # 20% risk delay ratio -> 50 risk score
     wireline_wait = 300,         # 10% wireline wait ratio -> 70 wireline score
-    resource_high_util = 80      # 100% utilization -> 20 resource score
+    resource_high_util = 80      # 100% utilization on the busiest non-frac
+                                  # resource -> 20 resource score
   )
 
   sim_stats <- summarise_simulation(summary)
   resource_summary <- summarise_resource_utilization(resource_utilization)
   bottlenecks <- summarise_bottlenecks(resource_summary)
 
+  # Overall peak utilization (incl. frac fleet) is kept for context/reporting.
   resource_max <- bottlenecks %>%
     group_by(operation_mode) %>%
     summarise(max_p90_utilization = max(p90_utilization, na.rm = TRUE), .groups = "drop")
+
+  # The frac fleet's utilization is structurally close to 100% by
+  # construction (estimated_campaign_days is built around frac_fleet_days),
+  # so it isn't an actionable spare-capacity signal on its own. The resource
+  # score instead measures slack in the OTHER resources (Wireline,
+  # CT/cleanout, Milling, Testing unit) - the ones the constraint cascade can
+  # actually relieve.
+  non_frac_max <- bottlenecks %>%
+    filter(resource != "Frac fleet") %>%
+    group_by(operation_mode) %>%
+    slice_max(p90_utilization, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    transmute(operation_mode, non_frac_p90_utilization = p90_utilization, non_frac_bottleneck = resource)
 
   risk_by_mode <- summary %>%
     group_by(operation_mode) %>%
@@ -1836,9 +1851,12 @@ build_readiness_score <- function(summary, risk_event_log, resource_utilization)
 
   sim_stats %>%
     left_join(resource_max, by = "operation_mode") %>%
+    left_join(non_frac_max, by = "operation_mode") %>%
     left_join(risk_by_mode, by = "operation_mode") %>%
     mutate(
       max_p90_utilization = ifelse(is.na(max_p90_utilization), 0, max_p90_utilization),
+      non_frac_p90_utilization = ifelse(is.na(non_frac_p90_utilization), 0, non_frac_p90_utilization),
+      non_frac_bottleneck = ifelse(is.na(non_frac_bottleneck), "None", non_frac_bottleneck),
       campaign_days_for_score = ifelse(is.na(campaign_days_for_score), mean_days, campaign_days_for_score),
       risk_delay_days_for_score = ifelse(is.na(risk_delay_days_for_score), 0, risk_delay_days_for_score),
       wireline_wait_days_for_score = ifelse(is.na(wireline_wait_days_for_score), 0, wireline_wait_days_for_score),
@@ -1846,7 +1864,7 @@ build_readiness_score <- function(summary, risk_event_log, resource_utilization)
       risk_delay_ratio = risk_delay_days_for_score / pmax(campaign_days_for_score, 1e-9),
       wireline_wait_ratio = wireline_wait_days_for_score / pmax(campaign_days_for_score, 1e-9),
       schedule_score = pmax(0, 100 - penalties$schedule_uncertainty * uncertainty_ratio),
-      resource_score = pmax(0, 100 - penalties$resource_high_util * pmax(max_p90_utilization - 0.60, 0) / 0.40),
+      resource_score = pmax(0, 100 - penalties$resource_high_util * pmax(non_frac_p90_utilization - 0.60, 0) / 0.40),
       risk_score = pmax(0, 100 - penalties$risk_delay * risk_delay_ratio),
       wireline_score = pmax(0, 100 - penalties$wireline_wait * wireline_wait_ratio),
       schedule_weight = weights$schedule,
@@ -1866,12 +1884,13 @@ build_readiness_score <- function(summary, risk_event_log, resource_utilization)
         readiness_score >= 40 ~ "At Risk",
         TRUE ~ "Critical"
       ),
-      scoring_note = "Score = 30% schedule + 30% resource + 25% risk + 15% wireline. Higher is better."
+      scoring_note = "Score = 30% schedule + 30% resource + 25% risk + 15% wireline. Resource score reflects the busiest non-frac resource (Wireline/CT/Milling/Testing) - frac-fleet utilization is structurally near 100% by design and is reported separately. Higher is better."
     ) %>%
     select(operation_mode, readiness_score, readiness_status,
            schedule_score, resource_score, risk_score, wireline_score,
            schedule_weight, resource_weight, risk_weight, wireline_weight,
-           uncertainty_ratio, max_p90_utilization, risk_delay_ratio, wireline_wait_ratio,
+           uncertainty_ratio, max_p90_utilization, non_frac_p90_utilization, non_frac_bottleneck,
+           risk_delay_ratio, wireline_wait_ratio,
            scoring_note)
 }
 
@@ -2247,7 +2266,9 @@ build_management_report <- function(summary, risk_event_log, resource_utilizatio
       `Risk` = round(risk_score, 1),
       `Wireline` = round(wireline_score, 1),
       `Uncertainty` = fmt_pct(uncertainty_ratio),
-      `Max P90 utilization` = fmt_pct(max_p90_utilization),
+      `Max P90 utilization (incl. frac)` = fmt_pct(max_p90_utilization),
+      `Non-frac bottleneck` = non_frac_bottleneck,
+      `Non-frac P90 utilization` = fmt_pct(non_frac_p90_utilization),
       `Risk delay ratio` = fmt_pct(risk_delay_ratio),
       `Wireline wait ratio` = fmt_pct(wireline_wait_ratio)
     )
@@ -2623,7 +2644,7 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
       Risk = round(risk_score, 1),
       Wireline = round(wireline_score, 1),
       Uncertainty = fmt_pct(uncertainty_ratio),
-      `P90 util.` = fmt_pct(max_p90_utilization)
+      `Non-frac util.` = fmt_pct(non_frac_p90_utilization)
     )
 
   bottleneck_report <- bottlenecks %>%
