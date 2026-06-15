@@ -170,3 +170,63 @@ assess_recommendation_robustness <- function(
     n_iterations = as.integer(n_iterations)
   )
 }
+
+# -----------------------------------------------------------------------------
+# combine_recommendation_confidence(): folds the statistical confidence from
+# recommend_action() (win-rate from paired re-simulation, or the cascade's
+# prob_primary when not verified) together with the robustness sweep above
+# (OAT stability + combined stress case) into a single decision-ready
+# confidence level. If `robustness` is NULL (not yet run), falls back to the
+# statistical band alone with a caveat to run the check.
+# -----------------------------------------------------------------------------
+.CONF_RANK <- c("Inconclusive" = 1L, "Low" = 2L, "Moderate" = 3L, "High" = 4L)
+
+combine_recommendation_confidence <- function(rec, robustness = NULL) {
+  stat_band <- rec$confidence_band
+  stat_line <- sprintf("%.0f%% confidence in the underlying analysis (%s).",
+                        100 * rec$confidence, rec$basis)
+
+  if (is.null(robustness)) {
+    return(list(
+      level = stat_band,
+      label = sprintf("%s confidence", stat_band),
+      detail = c(
+        stat_line,
+        "Robustness not yet checked - run the check below to confirm this holds under +-15% planning-assumption uncertainty."
+      )
+    ))
+  }
+
+  n_total    <- nrow(robustness$summary)
+  n_unstable <- sum(!robustness$summary$stable)
+  oat_stable <- n_unstable == 0
+  stress     <- robustness$combined[robustness$combined$scenario == "Stress case", ]
+  stress_stable <- isTRUE(stress$stable[1])
+
+  robustness_rank <- if (oat_stable && stress_stable) 4L
+                      else if (oat_stable || stress_stable) 3L
+                      else 2L
+  overall_rank <- min(.CONF_RANK[[stat_band]], robustness_rank)
+  overall <- names(.CONF_RANK)[.CONF_RANK == overall_rank]
+
+  oat_line <- if (oat_stable) {
+    sprintf("Holds across all %d one-at-a-time assumption swings of +-%.0f%%.",
+            n_total, 100 * robustness$perturb_pct)
+  } else {
+    sprintf("Changes under a +-%.0f%% swing in %d of %d assumptions (see table below).",
+            100 * robustness$perturb_pct, n_unstable, n_total)
+  }
+  stress_line <- if (stress_stable) {
+    sprintf("Holds under the combined stress case (all assumptions +-%.0f%% unfavourable, P50 %+.1f d).",
+            100 * robustness$perturb_pct, stress$delta_p50_days[1])
+  } else {
+    sprintf("Changes to \"%s\" under the combined stress case (P50 %+.1f d).",
+            stress$recommendation[1], stress$delta_p50_days[1])
+  }
+
+  list(
+    level = overall,
+    label = sprintf("%s confidence", overall),
+    detail = c(stat_line, oat_line, stress_line)
+  )
+}

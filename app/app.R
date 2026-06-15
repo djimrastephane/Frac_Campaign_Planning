@@ -261,6 +261,7 @@ ui <- page_sidebar(
         card(full_screen = TRUE, card_header("Recommendation"),
              card_body(
                actionButton("verify_rec", "Verify by re-simulation", class = "btn-sm btn-primary mb-2"),
+               uiOutput("recommendation_confidence"),
                verbatimTextOutput("recommendation_panel")))
       ),
       layout_columns(
@@ -862,6 +863,18 @@ server <- function(input, output, session) {
       `Vs. base` = ifelse(stable, "Unchanged", "Changed")
     )
     DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
+  })
+
+  output$recommendation_confidence <- renderUI({
+    req(sim_results())
+    conf <- combine_recommendation_confidence(rec_v2_r(), robustness_rv())
+    badge_class <- switch(conf$level,
+      "High" = "bg-success", "Moderate" = "bg-warning text-dark",
+      "Low" = "bg-danger", "Inconclusive" = "bg-secondary")
+    tagList(
+      tags$span(class = paste("badge", badge_class), conf$label),
+      tags$ul(class = "mt-2 mb-2 small text-muted", lapply(conf$detail, tags$li))
+    )
   })
 
   # --- Scenario library: save/compare run configurations -------------------
