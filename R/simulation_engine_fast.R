@@ -417,7 +417,7 @@ empty_sums_matrix <- function(n_wells) {
 }
 
 draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
-                               wireline_run_days = 0.25) {
+                               wireline_run_days = 0.25, collect_log = TRUE) {
   # Standard per-well draw
   occurs <- stats::rbinom(grid$n, 1, grid$adjusted_probability) == 1
 
@@ -506,6 +506,13 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
   sums <- accumulate_into(sums, "mill_x_plugs",w, c_mill_plugs)
   sums <- accumulate_into(sums, "test_x",      w, c_test_days)
   sums <- accumulate_into(sums, "frac_x",      w, c_frac_days)
+
+  # risk_log is a pure output artifact (no random draws here), so skipping it
+  # when the caller does not need it changes nothing numerically and leaves the
+  # RNG stream untouched.
+  if (!collect_log) {
+    return(list(risk_log = empty_risk_event_log(), sums = sums))
+  }
 
   risk_log <- tibble(
     simulation_id = iter_id,
@@ -686,7 +693,24 @@ schedule_post_frac_milling <- function(release_times,
 
   order_idx <- order(release_times, seq_along(release_times))
 
-  rows <- vector("list", n)
+  # perf (round 2): collect schedule columns into preallocated typed vectors and
+  # build ONE tibble after the loop, instead of a tibble() per well per iteration
+  # (was line ~783, 61% of total runtime). Bit-identical: same values, same
+  # column order, same types, same row order (well_index 1..n).
+  v_well_index     <- integer(n)
+  v_frac_release   <- numeric(n)
+  v_mill_work      <- numeric(n)
+  v_mill_start     <- numeric(n)
+  v_mill_finish    <- numeric(n)
+  v_mill_resource  <- character(n)
+  v_mill_res_id    <- rep(NA_integer_, n)
+  v_test_for_mill  <- rep(NA_integer_, n)
+  v_ct_days        <- numeric(n)
+  v_dedicated_days <- numeric(n)
+  v_flow_work      <- numeric(n)
+  v_flow_start     <- numeric(n)
+  v_flow_finish    <- numeric(n)
+  v_flow_test_id   <- integer(n)
   dedicated_mill_busy <- 0
   ct_equiv_done <- 0
   ct_busy_days <- 0
@@ -773,25 +797,38 @@ schedule_post_frac_milling <- function(release_times,
     test_avail[flow_test_id] <- flow_finish
     testing_flowback_busy <- testing_flowback_busy + flow_work
 
-    rows[[i]] <- tibble(
-      well_index = i,
-      frac_release_day = rel,
-      milling_workload_days = mill_work,
-      milling_start_day = mill_start,
-      milling_finish_day = mill_finish,
-      milling_resource = mill_resource,
-      milling_resource_id = mill_resource_id,
-      testing_unit_for_milling = test_for_mill_id,
-      ct_milling_days_used = ct_days_used,
-      dedicated_milling_days_used = dedicated_days_used,
-      flowback_testing_days = flow_work,
-      flowback_start_day = flow_start,
-      flowback_finish_day = flow_finish,
-      testing_unit_for_flowback = flow_test_id
-    )
+    v_well_index[i]     <- i
+    v_frac_release[i]   <- rel
+    v_mill_work[i]      <- mill_work
+    v_mill_start[i]     <- mill_start
+    v_mill_finish[i]    <- mill_finish
+    v_mill_resource[i]  <- mill_resource
+    v_mill_res_id[i]    <- mill_resource_id
+    v_test_for_mill[i]  <- test_for_mill_id
+    v_ct_days[i]        <- ct_days_used
+    v_dedicated_days[i] <- dedicated_days_used
+    v_flow_work[i]      <- flow_work
+    v_flow_start[i]     <- flow_start
+    v_flow_finish[i]    <- flow_finish
+    v_flow_test_id[i]   <- flow_test_id
   }
 
-  sched <- bind_rows(rows)
+  sched <- tibble(
+    well_index = v_well_index,
+    frac_release_day = v_frac_release,
+    milling_workload_days = v_mill_work,
+    milling_start_day = v_mill_start,
+    milling_finish_day = v_mill_finish,
+    milling_resource = v_mill_resource,
+    milling_resource_id = v_mill_res_id,
+    testing_unit_for_milling = v_test_for_mill,
+    ct_milling_days_used = v_ct_days,
+    dedicated_milling_days_used = v_dedicated_days,
+    flowback_testing_days = v_flow_work,
+    flowback_start_day = v_flow_start,
+    flowback_finish_day = v_flow_finish,
+    testing_unit_for_flowback = v_flow_test_id
+  )
   list(
     post_frac_completion_day = max(c(test_avail, mill_avail, ct_avail, release_times), na.rm = TRUE),
     milling_completion_day = if (nrow(sched) > 0) max(sched$milling_finish_day, na.rm = TRUE) else 0,
@@ -977,7 +1014,11 @@ simulate_campaign_detailed <- function(
     flowback_testing_days_min = 7,       # post-frac flowback + testing window
     flowback_testing_days_max = 10,
     seed = NULL,
-    progress_callback = NULL  # optional function(i, n) for Shiny progress
+    progress_callback = NULL,  # optional function(i, n) for Shiny progress
+    # --- perf (round 1): skip building per-iteration output frames the caller
+    # does not need. Defaults preserve the original return value exactly.
+    keep_logs = TRUE,            # build risk_event_log (FALSE for screening runs)
+    collect_well_details = TRUE  # build per-well details (FALSE for screening runs)
 ) {
   if (!is.null(seed)) set.seed(seed)
 
@@ -1167,7 +1208,8 @@ simulate_campaign_detailed <- function(
 
     if (!is.null(risk_grid)) {
       drawn <- draw_risks_on_grid(risk_grid, well_df, iter_id, operation_mode,
-                                  wireline_run_days = wireline_time_per_stage_days)
+                                  wireline_run_days = wireline_time_per_stage_days,
+                                  collect_log = keep_logs)
       risk_log <- drawn$risk_log
       s <- drawn$sums
     } else {
@@ -1402,7 +1444,7 @@ simulate_campaign_detailed <- function(
     # frac release, so the post-frac scheduler produces the actual completion day.
     estimated_campaign_days <- max(total_frac_related_days, post_frac_completion_days, na.rm = TRUE)
 
-    summary_list[[iter_id]] <- tibble(
+    summary_list[[iter_id]] <- list(
       simulation_id = iter_id,
       operation_mode = operation_mode,
       wells = n_wells,
@@ -1471,35 +1513,46 @@ simulate_campaign_detailed <- function(
       total_testing_fleet_days
     )
 
-    resource_list[[iter_id]] <- tibble(
+    resource_list[[iter_id]] <- data.frame(
       simulation_id = iter_id,
       operation_mode = operation_mode,
       resource = resource_names,
       units = resource_units,
       workload_days = resource_workload,
       fleet_days_after_resources = resource_fleet_days,
-      utilization = resource_workload / pmax(estimated_campaign_days * resource_units, 1e-9)
+      utilization = resource_workload / pmax(estimated_campaign_days * resource_units, 1e-9),
+      stringsAsFactors = FALSE, check.names = FALSE
     )
 
-    well_list[[iter_id]] <- well_df %>%
-      select(
-        simulation_id, operation_mode, pad_id, well_id, stages, extra_stages, final_stages,
-        temp_log_stages, scmt_offline, plugs, extra_plugs,
-        frac_days_per_stage, frac_settling_days, milling_days_per_plug, scmt_days, cleanout_days,
-        base_frac_days, frac_execution_days, wireline_time_per_stage_days, wireline_rig_up_down_days,
-        wireline_contingency_pct, wireline_base_stage_days, wireline_contingency_days,
-        temp_log_days, wireline_stage_readiness_days,
-        wireline_fleet_days, wireline_readiness_delay_days, ct_workload_days,
-        milling_days_gross, risk_delay_days, frac_related_days, frac_release_day,
-        milling_start_day, milling_finish_day, milling_resource, flowback_start_day, flowback_finish_day,
-        frac_tree_constraint_delay_days, is_first_on_pad, well_transition_days, wireline_rework_days, extra_wireline_runs,
-        ct_consequence_days, extra_milling_plugs, risk_testing_days, frac_consequence_days
-      )
+    if (collect_well_details) {
+      well_list[[iter_id]] <- well_df %>%
+        select(
+          simulation_id, operation_mode, pad_id, well_id, stages, extra_stages, final_stages,
+          temp_log_stages, scmt_offline, plugs, extra_plugs,
+          frac_days_per_stage, frac_settling_days, milling_days_per_plug, scmt_days, cleanout_days,
+          base_frac_days, frac_execution_days, wireline_time_per_stage_days, wireline_rig_up_down_days,
+          wireline_contingency_pct, wireline_base_stage_days, wireline_contingency_days,
+          temp_log_days, wireline_stage_readiness_days,
+          wireline_fleet_days, wireline_readiness_delay_days, ct_workload_days,
+          milling_days_gross, risk_delay_days, frac_related_days, frac_release_day,
+          milling_start_day, milling_finish_day, milling_resource, flowback_start_day, flowback_finish_day,
+          frac_tree_constraint_delay_days, is_first_on_pad, well_transition_days, wireline_rework_days, extra_wireline_runs,
+          ct_consequence_days, extra_milling_plugs, risk_testing_days, frac_consequence_days
+        )
+    }
 
-    risk_log_list[[iter_id]] <- risk_log
+    if (keep_logs) risk_log_list[[iter_id]] <- risk_log
   }
 
-  summary <- bind_rows(summary_list)
+  # Columnar assembly: summary rows were collected as plain named lists to
+  # avoid per-iteration tibble() construction (the dominant runtime cost). Every
+  # field is a length-1 scalar, so unlist() rebuilds each column with its native
+  # type, producing output identical to the original per-row tibble()+bind_rows().
+  .scols <- names(summary_list[[1]])
+  summary <- tibble::as_tibble(stats::setNames(
+    lapply(.scols, function(cn) unlist(lapply(summary_list, `[[`, cn), use.names = FALSE)),
+    .scols
+  ))
   well_details <- bind_rows(well_list)
   risk_event_log <- bind_rows(risk_log_list)
   if (ncol(risk_event_log) == 0 || nrow(risk_event_log) == 0) risk_event_log <- empty_risk_event_log()
@@ -3119,7 +3172,9 @@ optimise_campaign_scenarios <- function(
         frac_trees = cfg$frac_trees,
         operation_mode = cfg$operation_mode,
         allow_ct_for_milling = cfg$allow_ct_for_milling,
-        seed = seed  # common random numbers across configs
+        seed = seed,  # common random numbers across configs
+        keep_logs = FALSE,            # screening/refine use $summary only
+        collect_well_details = FALSE
       ),
       fixed_args
     )

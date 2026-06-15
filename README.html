@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.7.33">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>readme</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="README_files/libs/clipboard/clipboard.min.js"></script>
+<script src="README_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="README_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="README_files/libs/quarto-html/popper.min.js"></script>
+<script src="README_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="README_files/libs/quarto-html/anchor.min.js"></script>
+<link href="README_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="README_files/libs/quarto-html/quarto-syntax-highlighting-ea385d0e468b0dd5ea5bf0780b1290d9.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="README_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="README_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="README_files/libs/bootstrap/bootstrap-81267100e462c21b3d6c0d5bf76a3417.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="fullcontent quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+
+<main class="content" id="quarto-document-content">
+
+
+
+
+<section id="frac-campaign-planning-simulator" class="level1">
+<h1>Frac Campaign Planning Simulator</h1>
+<p>A Shiny application for planning and evaluating multi-pad hydraulic fracturing campaigns using Monte Carlo simulation, operational risk modelling with consequence propagation, resource-constrained workload analysis, and scenario optimisation.</p>
+<p>The simulator is designed for completion engineers, project managers, and operations teams who need to estimate campaign duration, assess uncertainty, evaluate zipper frac strategies, quantify the impact of additional resources, and identify the most cost-effective execution configuration before field operations begin.</p>
+<p>The user does not need to edit R code. The application reads CSV input files, runs simulations, generates audit trails, and exports executive planning reports.</p>
+<hr>
+</section>
+<section id="project-overview" class="level1">
+<h1>Project Overview</h1>
+<p>Frac campaigns are complex operations involving multiple wells, multiple pads, shared resources, operational uncertainty, and competing schedules.</p>
+<p>Traditional planning approaches often rely on deterministic durations and engineering judgment, making it difficult to quantify schedule uncertainty or evaluate alternative execution strategies.</p>
+<p>This project provides a data-driven framework for:</p>
+<ul>
+<li>Campaign duration forecasting (P10 / P50 / P90)</li>
+<li>Operational risk assessment with consequence propagation</li>
+<li>Resource planning and bottleneck detection</li>
+<li>Zipper frac evaluation, including frac tree constraints</li>
+<li>Campaign acceleration and investment ranking</li>
+<li>Automated optimum-scenario search</li>
+<li>Decision support before execution</li>
+</ul>
+<hr>
+</section>
+<section id="main-features" class="level1">
+<h1>Main Features</h1>
+<section id="campaign-planning" class="level2">
+<h2 class="anchored" data-anchor-id="campaign-planning">Campaign Planning</h2>
+<ul>
+<li>Conventional and zipper frac simulation, side-by-side comparison with a common seed</li>
+<li>Multi-pad campaigns, 20 to 40 wells, randomised pad allocation and stage counts</li>
+<li>Frac tree constraint modelling (swap delays with 2 trees, diminishing benefit at 3 and 4+)</li>
+<li>Execution modes: Fast (300 runs), Standard (1,000), Audit (2,000 with full traceability)</li>
+</ul>
+</section>
+<section id="resource-modelling" class="level2">
+<h2 class="anchored" data-anchor-id="resource-modelling">Resource Modelling</h2>
+<ul>
+<li>Frac fleets, wireline units, CT / cleanout units, milling units, <strong>testing units</strong></li>
+<li>CT spare capacity can optionally support milling (two-pass capacity calculation)</li>
+<li>Post-frac flowback and testing window per well (7-10 days, configurable)</li>
+<li>Indicative resource deployment timeline (Gantt-style)</li>
+</ul>
+</section>
+<section id="risk-modelling" class="level2">
+<h2 class="anchored" data-anchor-id="risk-modelling">Risk Modelling</h2>
+<ul>
+<li>Full plug-and-perf risk library: plug pressure test failure, screenout, premature plug set, perforation misfire, UPCT failure, cement in casing, cement above plug, isolation plug failure, plus resource and external risks</li>
+<li><strong>Consequence propagation</strong>: each technical risk cascades into induced workload (wireline re-runs, CT interventions, extra milling plugs, testing interventions, extra pumping) rather than a direct delay only</li>
+<li>All consequence values overridable per-risk from the assumptions CSV</li>
+<li>User-adjustable risk multiplier</li>
+</ul>
+</section>
+<section id="decision-support" class="level2">
+<h2 class="anchored" data-anchor-id="decision-support">Decision Support</h2>
+<ul>
+<li>Executive KPI dashboard with readiness score and its drivers</li>
+<li>Critical bottleneck narrative and recommended actions</li>
+<li>Investment ranking: net benefit and benefit/cost of each proposed resource addition</li>
+<li><strong>Scenario optimiser</strong>: grid search over resource configurations, common-random-number screening, Pareto frontier of duration vs total mobilisation cost, one-click apply of the recommended scenario</li>
+</ul>
+</section>
+<section id="audit-and-reporting" class="level2">
+<h2 class="anchored" data-anchor-id="audit-and-reporting">Audit and Reporting</h2>
+<ul>
+<li>Executive PDF report (landscape, KPI dashboard, charts, styled tables, deployment timeline)</li>
+<li>Well-level audit trail, risk event log with consequence columns, assumptions-used table</li>
+<li>Downloadable audit package (zip) with 18+ CSV exports</li>
+<li>Input fidelity check: simulated vs historical distributions</li>
+</ul>
+<hr>
+</section>
+</section>
+<section id="operational-logic" class="level1">
+<h1>Operational Logic</h1>
+<p>This section documents the modelled equipment relationships and operation sequence so the logic can be verified against, and adapted to, your own operations.</p>
+<section id="equipment-relationship-map" class="level2">
+<h2 class="anchored" data-anchor-id="equipment-relationship-map">Equipment Relationship Map</h2>
+<pre class="mermaid"><code>flowchart TB
+    subgraph PRE[Pre-Frac per Well]
+        CT[CT / Cleanout Unit&lt;br/&gt;scraper run, SCMT support]
+    end
+
+    subgraph FRAC[Frac Execution per Stage]
+        WL[Wireline Unit&lt;br/&gt;perforate, set plugs,&lt;br/&gt;temperature logs]
+        FF[Frac Fleet&lt;br/&gt;pumping]
+        TREES[Frac Trees&lt;br/&gt;wellhead access]
+    end
+
+    subgraph POST[Post-Frac per Well]
+        ML[Milling Unit&lt;br/&gt;drill out plugs]
+        TU[Testing Unit&lt;br/&gt;flowback + well test]
+    end
+
+    CT --&gt;|well ready| WL
+    WL --&gt;|stage perforated&lt;br/&gt;plug set| FF
+    FF --&gt;|stage pumped| WL
+    TREES -.-&gt;|2 trees = baseline zipper&lt;br/&gt;3+ trees = less swap delay| FF
+    FF --&gt;|all stages complete| ML
+    ML --&gt;|plugs milled| TU
+    CT -.-&gt;|optional: spare capacity&lt;br/&gt;supports milling| ML
+
+    RISK[Risk Events] -.-&gt;|induced workload| WL
+    RISK -.-&gt; CT
+    RISK -.-&gt; ML
+    RISK -.-&gt; TU
+    RISK -.-&gt; FF</code></pre>
+<p>Key dependencies as modelled:</p>
+<ul>
+<li><strong>Wireline gates frac.</strong> A stage cannot pump until wireline has perforated and set the plug. In zipper mode, if wireline workload per well exceeds frac workload per well, the frac fleet waits (<code>wireline_readiness_delay_days</code>) and the idle cost is reported.</li>
+<li><strong>Frac trees gate zipper.</strong> Zipper requires 2 trees minimum. With exactly 2, each inter-well transition incurs a swap delay; a 3rd tree reduces transition waiting (~5%), 4+ slightly more (~10%, diminishing).</li>
+<li><strong>Milling follows frac.</strong> Plugs to mill = final stages + replacement plugs (from risks) + consequence plugs (e.g.&nbsp;isolation plug failure).</li>
+<li><strong>CT can support milling (optional).</strong> CT primary duties (cleanout, SCMT, risk interventions) are reserved first; only spare capacity over the frac-path campaign window transfers to milling, at a configurable efficiency (default 0.65).</li>
+<li><strong>Testing follows milling.</strong> Every well needs a flowback + testing window (7-10 days default). Risk events (premature plug set, plug test failure, isolation plug failure) add testing interventions.</li>
+</ul>
+</section>
+<section id="operation-sequence-per-well" class="level2">
+<h2 class="anchored" data-anchor-id="operation-sequence-per-well">Operation Sequence per Well</h2>
+<pre class="mermaid"><code>flowchart TB
+    A[CT cleanout / scraper run] --&gt; B[SCMT / cement evaluation log]
+    B --&gt; C{Stage loop}
+    C --&gt; D[Wireline: perforate stage N]
+    D --&gt; E[Frac fleet: pump stage N]
+    E --&gt; F[Settling time]
+    F --&gt; G[Wireline: set isolation plug]
+    G --&gt; H{More stages?}
+    H --&gt;|yes| C
+    H --&gt;|no| I[Milling: drill out all plugs]
+    I --&gt; J[Flowback 7-10 days + testing unit]
+    J --&gt; K[Well complete]</code></pre>
+</section>
+<section id="risk-consequence-propagation" class="level2">
+<h2 class="anchored" data-anchor-id="risk-consequence-propagation">Risk Consequence Propagation</h2>
+<p>Risks do not just add delay days. Each technical risk cascades into induced resource workload:</p>
+<pre class="mermaid"><code>flowchart LR
+    R[Risk event occurs] --&gt; D[Direct delay&lt;br/&gt;triangular sample]
+    R --&gt; C[Operational consequences]
+    C --&gt; W[Extra wireline runs&lt;br/&gt;-&gt; wireline workload]
+    C --&gt; X[CT intervention days&lt;br/&gt;-&gt; CT workload]
+    C --&gt; M[Extra plugs to mill&lt;br/&gt;-&gt; milling workload]
+    C --&gt; T[Testing interventions&lt;br/&gt;-&gt; testing workload]
+    C --&gt; P[Extra pumping&lt;br/&gt;-&gt; frac workload]
+    D --&gt; S[Schedule impact]
+    W --&gt; S
+    X --&gt; S
+    M --&gt; S
+    T --&gt; S
+    P --&gt; S</code></pre>
+<p>Default consequence library (per occurred event, overridable per-risk via CSV):</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+<col style="width: 16%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Risk event</th>
+<th>Wireline runs</th>
+<th>CT days</th>
+<th>Milling plugs</th>
+<th>Testing days</th>
+<th>Pump days</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Screenout</td>
+<td>1</td>
+<td>0.50</td>
+<td>-</td>
+<td>-</td>
+<td>0.25 (+ extra stage)</td>
+</tr>
+<tr class="even">
+<td>Plug pressure test failure</td>
+<td>1</td>
+<td>-</td>
+<td>-</td>
+<td>0.15 (+ plug)</td>
+<td>-</td>
+</tr>
+<tr class="odd">
+<td>Premature plug set</td>
+<td>-</td>
+<td>0.25</td>
+<td>-</td>
+<td>0.30</td>
+<td>-</td>
+</tr>
+<tr class="even">
+<td>Perforation / gun misfire</td>
+<td>1</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr class="odd">
+<td>Isolation plug failure</td>
+<td>1</td>
+<td>0.50</td>
+<td>1</td>
+<td>0.25</td>
+<td>-</td>
+</tr>
+<tr class="even">
+<td>UPCT failure</td>
+<td>1</td>
+<td>0.25</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr class="odd">
+<td>Cement in casing</td>
+<td>-</td>
+<td>1.00</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr class="even">
+<td>Cement above plug</td>
+<td>-</td>
+<td>0.50</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="campaign-duration-logic" class="level2">
+<h2 class="anchored" data-anchor-id="campaign-duration-logic">Campaign Duration Logic</h2>
+<pre class="text"><code>Per well:
+  wireline workload = stages x time/stage + rig up/down + temp logs
+                      + contingency + risk delays + induced re-runs
+  frac workload     = (stages x time/stage + settling + isolation plugs
+                      + risk delays + induced pumping + tree swap delay)
+                      x zipper factor + external delays
+  CT workload       = cleanout + SCMT + risk delays + induced interventions
+
+Frac path (Pass 1):
+  conventional: CT + frac + wireline fleet-days, summed over wells
+  zipper:       CT + max(frac, wireline) fleet-days  (wireline overlaps pumping)
+
+CT support for milling (Pass 2, optional):
+  spare CT  = frac-path duration x CT units - CT primary workload
+  milling   = (gross milling - spare CT x efficiency) / milling units
+
+Campaign duration = max(frac path, milling fleet-days, testing fleet-days)</code></pre>
+</section>
+<section id="adapting-the-model-to-your-operations" class="level2">
+<h2 class="anchored" data-anchor-id="adapting-the-model-to-your-operations">Adapting the Model to Your Operations</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Your operation differs in…</th>
+<th>Adjust…</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Stage cycle times</td>
+<td>Frac time per stage, wireline time per stage, settling time</td>
+<td>Sidebar &gt; Operation timing</td>
+</tr>
+<tr class="even">
+<td>Pre-frac scope (no SCMT, no scraper)</td>
+<td>Set the duration rows to 0</td>
+<td><code>master_risks_assumptions.csv</code></td>
+</tr>
+<tr class="odd">
+<td>Risk likelihoods and delays</td>
+<td>Probability / Min / ML / Max per risk</td>
+<td><code>master_risks_assumptions.csv</code></td>
+</tr>
+<tr class="even">
+<td>Risk operational consequences</td>
+<td>Add columns <code>extra_wireline_runs</code>, <code>extra_ct_days</code>, <code>extra_milling_plugs</code>, <code>extra_testing_days</code>, <code>extra_frac_days</code></td>
+<td><code>master_risks_assumptions.csv</code> (overrides built-in library)</td>
+</tr>
+<tr class="odd">
+<td>Which risks add plugs / stages</td>
+<td>Simulation Impact text (contains “plug”, “extra stage”, “screen out”…)</td>
+<td><code>master_risks_assumptions.csv</code></td>
+</tr>
+<tr class="even">
+<td>Flowback duration</td>
+<td>Flowback + testing min/max days</td>
+<td>Sidebar &gt; Resources</td>
+</tr>
+<tr class="odd">
+<td>Tree swap handling</td>
+<td>Frac tree swap delay hours; frac trees available</td>
+<td>Sidebar &gt; Resources</td>
+</tr>
+<tr class="even">
+<td>CT capability to mill</td>
+<td>Allow CT to support milling + efficiency</td>
+<td>Sidebar &gt; Resources</td>
+</tr>
+<tr class="odd">
+<td>Historical performance basis</td>
+<td>Milling days/plug, frac days/stage rows</td>
+<td><code>historical_wells.csv</code></td>
+</tr>
+<tr class="even">
+<td>New resource not modelled</td>
+<td>Requires code change in <code>simulation_engine.R</code> (resource vectors + workload formula)</td>
+<td>source</td>
+</tr>
+</tbody>
+</table>
+<hr>
+</section>
+</section>
+<section id="architecture" class="level1">
+<h1>Architecture</h1>
+<pre class="text"><code>Historical Wells CSV     Assumptions + Risk CSV
+          │                       │
+          └──────────┬────────────┘
+                     ▼
+              Input Validation (row-level diagnostics)
+                     ▼
+        Monte Carlo Simulation Engine (vectorised)
+          │ parameter cache · static risk grid
+          │ consequence propagation · two-pass CT capacity
+          ▼
+   ┌──────────┬─────────────┬──────────────┐
+   ▼          ▼             ▼              ▼
+ Summary   Well Detail   Risk Event    Resource
+ (P10/50/90) Audit Trail  Log + Conseq. Utilization
+   └──────────┴─────────────┴──────────────┘
+                     ▼
+   Analytics: readiness · bottlenecks · investment ranking
+              consequence summary · deployment timeline
+                     ▼
+   ┌──────────┬─────────────┬──────────────┐
+   ▼          ▼             ▼              ▼
+ Dashboard  Optimiser    PDF Report   Audit Package
+ (bslib)    (Pareto)     (executive)  (zip, 18+ CSVs)</code></pre>
+<hr>
+</section>
+<section id="application-guide" class="level1">
+<h1>Application Guide</h1>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Tab</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Overview</strong></td>
+<td>KPI value boxes (best option, P50/P90, zipper saving, readiness + drivers, bottleneck, idle cost), critical bottleneck narrative, investment ranking, S-curve, distribution, traffic lights</td>
+</tr>
+<tr class="even">
+<td><strong>Risks</strong></td>
+<td>Tornado, consequence propagation (direct vs induced), top delay contributors, stage-level risks, detail tables</td>
+</tr>
+<tr class="odd">
+<td><strong>Resources</strong></td>
+<td>Deployment timeline (Gantt-style), utilization, bottleneck detection, recommended actions, cost impact</td>
+</tr>
+<tr class="even">
+<td><strong>Wireline &amp; Readiness</strong></td>
+<td>Stage-readiness constraint breakdown, readiness score</td>
+</tr>
+<tr class="odd">
+<td><strong>Optimiser</strong></td>
+<td>Define resource ranges, screen all configurations (common seed), Pareto frontier, recommended scenario, apply-to-sidebar</td>
+</tr>
+<tr class="even">
+<td><strong>Audit &amp; Data</strong></td>
+<td>Input fidelity check, full results, well details, risk event log, assumptions used, input check</td>
+</tr>
+</tbody>
+</table>
+<section id="scenario-optimiser" class="level2">
+<h2 class="anchored" data-anchor-id="scenario-optimiser">Scenario Optimiser</h2>
+<p>The optimiser answers: <em>which configuration delivers the lowest time at the lowest cost?</em></p>
+<ul>
+<li><strong>Objective</strong>: total mobilisation cost = all contracted units x day rate x P50 duration. This embeds both schedule and idle time, so an extra unit only wins if its schedule saving pays for its contract.</li>
+<li><strong>Method</strong>: every configuration in the grid is screened at reduced iterations with a <strong>common random seed</strong> (fair like-for-like ranking); the top 5 are refined at full iterations.</li>
+<li><strong>Output</strong>: Pareto frontier of duration vs cost; the recommended scenario is the lowest-cost point on the frontier, with the fastest configuration quoted for contrast. One click applies the recommendation to the sidebar.</li>
+</ul>
+<hr>
+</section>
+</section>
+<section id="input-files" class="level1">
+<h1>Input Files</h1>
+<section id="historical_wells.csv" class="level3">
+<h3 class="anchored" data-anchor-id="historical_wells.csv">historical_wells.csv</h3>
+<p>Historical well performance used to derive operational duration distributions. Required columns include WellID, PadID, StagesCompleted, PlugsInstalled, ContingencyPlugs, FracDays, SCMTDays, MillingDays, FracDaysPerStage, MillingDaysPerPlug.</p>
+</section>
+<section id="master_risks_assumptions.csv" class="level3">
+<h3 class="anchored" data-anchor-id="master_risks_assumptions.csv">master_risks_assumptions.csv</h3>
+<p>Assumptions and risk library. Required: Category, Variable / Risk Event, Type, Probability, Min/Most Likely/Max days, Simulation Impact. Optional consequence-override columns: <code>extra_wireline_runs</code>, <code>extra_ct_days</code>, <code>extra_milling_plugs</code>, <code>extra_testing_days</code>, <code>extra_frac_days</code>.</p>
+<p>Templates: <code>data_templates/</code>. Validation reports the exact rows that fail (Min &lt;= ML &lt;= Max ordering, probability in [0,1]).</p>
+<hr>
+</section>
+</section>
+<section id="outputs" class="level1">
+<h1>Outputs</h1>
+<p>Audit package (zip): simulation_summary, simulation_well_details, simulation_risk_event_log (with consequence columns), resource_utilization, resource_utilization_summary, assumptions_used, executive_summary, executive_kpis, delay_contributors, stage_level_risks, risk_consequences, bottleneck_detection, resource_recommendations, investment_ranking, cost_impact, wireline_constraint, traffic_lights, readiness_score, resource_timeline, management_report.pdf.</p>
+<p>Optimiser results export separately from the Optimiser tab.</p>
+<hr>
+</section>
+<section id="run-locally" class="level1">
+<h1>Run Locally</h1>
+<section id="requirements" class="level2">
+<h2 class="anchored" data-anchor-id="requirements">Requirements</h2>
+<ul>
+<li>R 4.3+</li>
+</ul>
+</section>
+<section id="install-dependencies" class="level2">
+<h2 class="anchored" data-anchor-id="install-dependencies">Install Dependencies</h2>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">install.packages</span>(<span class="fu">c</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">"shiny"</span>, <span class="st">"bslib"</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">"dplyr"</span>, <span class="st">"tidyr"</span>, <span class="st">"stringr"</span>, <span class="st">"tibble"</span>, <span class="st">"readr"</span>, <span class="st">"purrr"</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">"ggplot2"</span>, <span class="st">"scales"</span>,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">"DT"</span>, <span class="st">"janitor"</span>,</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">"gridExtra"</span>,   <span class="co"># executive PDF report</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"zip"</span>          <span class="co"># robust cross-platform audit package</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</section>
+<section id="launch" class="level2">
+<h2 class="anchored" data-anchor-id="launch">Launch</h2>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"run_local.R"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<hr>
+</section>
+</section>
+<section id="roadmap" class="level1">
+<h1>Roadmap</h1>
+<section id="version-1.0---mvp-simulator-completed" class="level2">
+<h2 class="anchored" data-anchor-id="version-1.0---mvp-simulator-completed">Version 1.0 - MVP Simulator (Completed)</h2>
+<p>Monte Carlo engine, historical duration extraction, risk framework, conventional + zipper simulation, resource inputs, audit package.</p>
+</section>
+<section id="version-2.0---operational-realism-completed" class="level2">
+<h2 class="anchored" data-anchor-id="version-2.0---operational-realism-completed">Version 2.0 - Operational Realism (Completed)</h2>
+<p>Stage-level risk attribution, consequence propagation (screenout, plug failures, misfires cascading into resource workloads), frac tree constraints, CT-supports-milling, testing unit and flowback modelling, enhanced delay attribution, readiness scoring, investment ranking, scenario optimiser, executive PDF report, indicative deployment timeline.</p>
+</section>
+<section id="version-3.0---resource-scheduling-engine-planned" class="level2">
+<h2 class="anchored" data-anchor-id="version-3.0---resource-scheduling-engine-planned">Version 3.0 - Resource Scheduling Engine (Planned)</h2>
+<p>Discrete-event scheduling, true critical path, pad-to-pad resource movement, multi-fleet sequencing, schedule-accurate Gantt charts.</p>
+</section>
+<section id="version-4.0---campaign-planning-platform-planned" class="level2">
+<h2 class="anchored" data-anchor-id="version-4.0---campaign-planning-platform-planned">Version 4.0 - Campaign Planning Platform (Planned)</h2>
+<p>Scenario management and saved studies, historical campaign backtesting (predicted vs actual), Bayesian updating of risk probabilities from observed events, portfolio-level planning.</p>
+<hr>
+</section>
+</section>
+<section id="limitations" class="level1">
+<h1>Limitations</h1>
+<ul>
+<li>Operational planning model: workload and capacity aggregation, not a discrete-event schedule. The deployment timeline is indicative.</li>
+<li>Not a hydraulic fracture propagation, reservoir, or production model.</li>
+<li>Risk consequences are deterministic per event (library values); delays are sampled.</li>
+<li>CT spare capacity is assumed uniformly available across the campaign window.</li>
+<li>Optimiser recommendations are conditional on the day rates entered; sensitivity-check against contract ranges.</li>
+<li>Results depend on the quality of historical data and assumptions.</li>
+</ul>
+<hr>
+</section>
+<section id="license" class="level1">
+<h1>License</h1>
+<p>MIT License. See the LICENSE file for details.</p>
+<hr>
+</section>
+<section id="author" class="level1">
+<h1>Author</h1>
+<p><strong>Stephane Soulanoudjingar</strong></p>
+<p>Senior Completions &amp; Well Intervention Engineer with 17+ years of industry experience and MSc Data Science candidate.</p>
+<p>This project combines operational domain expertise with data science techniques to support data-driven campaign planning and execution decision-making.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

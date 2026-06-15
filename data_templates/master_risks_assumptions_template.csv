@@ -1,35 +1,107 @@
-Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Days,Simulation Impact
-Campaign Setup,Wells per pad,Random input,N/A,5,5,6,Defines number of pads
-Campaign Setup,Stages per well,Random input,N/A,5,6,8,Defines total stages
-Campaign Setup,Temperature log stages,Random input,N/A,1,1,2,Adds logging time
-Campaign Setup,SCMT offline,Random input,0.8,N/A,N/A,N/A,"If No, SCMT blocks frac readiness"
-Base Operation,SCMT duration,Duration,N/A,0.5,1,2,Pre-frac readiness
-Base Operation,Scraper / cleanout run,Duration,N/A,0.25,0.5,1.5,Well preparation
-Base Operation,Frac days per stage,Historical,N/A,1.03,1.93,9.26,Main frac duration
-Base Operation,Temperature log duration,Duration,N/A,0.1,0.25,0.5,Added for selected stages
-Base Operation,Isolation plug duration,Duration,N/A,0.1,0.25,0.5,Added after final stage
-Base Operation,Milling days per plug,Historical,N/A,0.36,0.68,1.43,Post-frac milling workload
-Technical Risk,Plug pressure test failure,Risk,0.05,0.25,0.5,1,Possible contingency plug
-Technical Risk,Screen out,Risk,0.03,0.25,0.5,2,"Screen out; possible extra stage and remedial treatment"
-Technical Risk,Premature plug set,Risk,0.02,0.5,1,2,Extra wireline run
-Technical Risk,Perforation gun misfire,Risk,0.03,0.1,0.25,0.5,Re-run guns
-Technical Risk,UPCT failure,Risk,0.02,0.25,0.5,1,CCL run required
-Technical Risk,Cement in casing,Risk,0.01,1,2,4,Extra cleanout
-Technical Risk,Cement above plug,Risk,0.01,0.5,1,2,Remedial intervention
-Technical Risk,Isolation plug failure,Risk,0.01,0.5,1,3,Additional plug
-Technical Risk,Electrical connection issue,Risk,0.03,0.25,0.5,1,Troubleshooting
-Technical Risk,Surface equipment failure,Risk,0.03,0.25,0.75,2,Repair and retest
-Resource Risk,Wireline crew unavailable,Risk,0.08,0.5,1,2,Waiting on crew
-Resource Risk,CT unit unavailable,Risk,0.05,0.5,1,3,Delayed cleanout
-Resource Risk,Milling unit unavailable,Risk,0.05,0.5,1,2,Milling backlog
-Resource Risk,Frac fleet downtime,Risk,0.04,0.5,1,3,Reduced pumping time
-Resource Risk,Logging crew unavailable,Risk,0.03,0.25,0.5,1,Delayed temperature logs
-Resource Risk,Plug inventory shortage,Risk,0.02,0.5,1,3,Material delay
-Resource Risk,Explosives delivery delay,Risk,0.02,0.5,1,2,Cannot perforate
-External Risk,Permit / regulatory delay,Risk,0.02,1,3,10,Work suspended
-External Risk,Site access restriction,Risk,0.03,0.5,2,5,Crew movement affected
-External Risk,Weather delay,Risk,0.05,0.25,1,4,Operations paused
-External Risk,Security restriction,Risk,0.01,1,3,7,Work suspended
-External Risk,Lockdown / travel restriction,Risk,0.01,2,5,15,Crew movement affected
-External Risk,Camp capacity issue,Risk,0.02,0.5,1,3,Crew rotation delay
-External Risk,Vendor mobilization delay,Risk,0.03,0.5,1.5,5,Service not available
+Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Days,Simulation Impact,Scope,extra_wireline_runs,extra_ct_days,extra_milling_plugs,extra_testing_days,extra_frac_days
+#
+# MASTER RISKS & ASSUMPTIONS TEMPLATE
+# Frac Campaign Planning Simulator
+#
+# HOW TO USE THIS FILE
+# --------------------
+# 1. Fill in your own durations / probabilities for each row.
+# 2. Do NOT change the Variable / Risk Event names -- the engine matches on these.
+#    To add a new risk, copy an existing Risk row and change the name/values.
+# 3. Scope (Risk rows only):
+#      stage    = probability applies per stage (e.g. screenout: 3% per stage)
+#      well     = probability applies per well independently
+#      campaign = single event for the whole campaign (e.g. crew unavailable)
+# 4. Consequence override columns (optional, Risk rows only):
+#    Leave blank to use the built-in consequence library defaults.
+#    Fill in to override for a specific risk:
+#      extra_wireline_runs  = additional wireline trips triggered by this event
+#      extra_ct_days        = additional CT unit-days (intervention, cleanout)
+#      extra_milling_plugs  = additional plugs to mill (e.g. isolation plug failure)
+#      extra_testing_days   = additional testing unit-days (re-test, verification)
+#      extra_frac_days      = additional pumping time (re-frac, screenout pump)
+# 5. Probability = N/A for non-risk rows (Duration, Random input, Historical).
+# 6. Min/ML/Max Days = N/A for rows where value comes from historical data
+#    or is a pure probability (e.g. SCMT offline).
+# 7. Historical rows: Min/ML/Max are populated from the historical_wells.csv
+#    distribution at runtime -- the values shown here are reference only.
+#
+# TYPE KEY
+# --------
+# Random input  : sampled once per iteration (integer range Min-Max)
+# Duration      : triangular-sampled per well (Min / Most Likely / Max days)
+# Historical    : resampled from historical_wells.csv distribution
+# Risk          : Bernoulli event; if it fires, delay is triangular Min-ML-Max
+#
+# =============================================================================
+# CAMPAIGN SETUP
+# =============================================================================
+Campaign Setup,Wells per pad,Random input,N/A,3,5,6,Defines number of pads,,,,,,
+Campaign Setup,Stages per well,Random input,N/A,5,6,8,Defines total stages per well,,,,,,
+Campaign Setup,Temperature log stages,Random input,N/A,1,1,2,Number of stages that receive a temperature survey,,,,,,
+Campaign Setup,SCMT offline,Random input,0.8,N/A,N/A,N/A,"Probability SCMT runs offline (not blocking frac). If No the SCMT duration blocks CT resource before frac.",,,,,,
+#
+# =============================================================================
+# BASE OPERATIONS
+# Duration rows: triangular distribution sampled per well per iteration.
+# Historical rows: resampled bootstrap from historical_wells.csv.
+# =============================================================================
+Base Operation,SCMT duration,Duration,N/A,0.5,1.0,2.0,CT resource time for cement evaluation (only charged if SCMT is online),,,,,,
+Base Operation,Scraper / cleanout run,Duration,N/A,0.25,0.5,1.5,CT resource time for pre-frac wellbore cleanup,,,,,,
+Base Operation,Frac days per stage,Historical,N/A,1.03,1.93,9.26,"Pumping time per stage. Reference values from template data; actual values resampled from historical_wells.csv at runtime.",,,,,,
+Base Operation,Temperature log duration,Duration,N/A,0.10,0.25,0.50,Wireline time per temperature survey stage,,,,,,
+Base Operation,Wireline plug setting duration,Duration,N/A,0.10,0.20,0.40,Wireline time to set one isolation plug before next perforation run,,,,,,
+Base Operation,Wireline perforation duration,Duration,N/A,0.10,0.25,0.50,Wireline time to perforate one stage,,,,,,
+Base Operation,Isolation plug duration,Duration,N/A,0.10,0.25,0.50,Wireline time to set final-stage isolation plug,,,,,,
+Base Operation,Milling days per plug,Historical,N/A,0.36,0.68,1.43,"Milling time per plug. Reference values from template data; actual values resampled from historical_wells.csv at runtime.",,,,,,
+#
+# =============================================================================
+# TECHNICAL RISKS
+# Scope = stage: probability applies per stage.
+#   Per-well effective probability = 1 - (1-p)^N_stages.
+#   Use this for events that can happen on any individual stage independently.
+#
+# PROBABILITY CALIBRATION GUIDE (stage-scope):
+#   If last campaign had 180 stages and 12 screenouts -> p = 12/180 = 0.067
+#   If last campaign had 180 stages and 5 gun misfires -> p = 5/180 = 0.028
+# =============================================================================
+Technical Risk,Plug pressure test failure,Risk,0.05,0.25,0.50,1.0,Possible contingency plug required,stage,1,0,0,0.15,0
+Technical Risk,Screen out,Risk,0.03,0.25,0.50,2.0,"Screen out event; possible extra stage, CT intervention and remedial treatment",stage,1,0.5,0,0,0.25
+Technical Risk,Premature plug set,Risk,0.02,0.50,1.00,2.0,Extra wireline run required to re-perforate,stage,0,0.25,0,0.30,0
+Technical Risk,Perforation gun misfire,Risk,0.03,0.10,0.25,0.5,Guns must be re-run,stage,1,0,0,0,0
+Technical Risk,UPCT failure,Risk,0.02,0.25,0.50,1.0,Additional CCL/UPCT pass required,stage,1,0.25,0,0,0
+Technical Risk,Cement in casing,Risk,0.01,1.00,2.00,4.0,Additional CT cleanout required before perforation,stage,0,1.0,0,0,0
+Technical Risk,Cement above plug,Risk,0.01,0.50,1.00,2.0,Remedial CT intervention,stage,0,0.5,0,0,0
+Technical Risk,Isolation plug failure,Risk,0.01,0.50,1.00,3.0,Additional plug to set and mill; testing required,stage,1,0.5,1,0.25,0
+Technical Risk,Electrical connection issue,Risk,0.03,0.25,0.50,1.0,Surface equipment troubleshooting,stage,0,0,0,0,0
+Technical Risk,Surface equipment failure,Risk,0.03,0.25,0.75,2.0,Repair and retest required; affects whole well not just a stage,well,0,0,0,0,0
+#
+# =============================================================================
+# RESOURCE RISKS
+# Scope = campaign: fires once for the whole campaign (single Bernoulli draw).
+#   Models crew absences, equipment downtime etc. that affect all concurrent
+#   operations, not each well independently.
+#
+# PROBABILITY CALIBRATION GUIDE (campaign-scope):
+#   "30% chance of a wireline crew issue during this campaign" -> p = 0.30
+#   Adjust based on your operational context and historical frequency.
+# =============================================================================
+Resource Risk,Wireline crew unavailable,Risk,0.08,0.50,1.0,2.0,Waiting on replacement crew; all wireline ops delayed,campaign,,,,, 
+Resource Risk,CT unit unavailable,Risk,0.05,0.50,1.0,3.0,Delayed cleanout and contingency response,campaign,,,,,
+Resource Risk,Milling unit unavailable,Risk,0.05,0.50,1.0,2.0,Milling backlog develops,campaign,,,,,
+Resource Risk,Frac fleet downtime,Risk,0.04,0.50,1.0,3.0,Reduced pumping rate or frac pause,campaign,,,,,
+Resource Risk,Logging crew unavailable,Risk,0.03,0.25,0.5,1.0,Temperature logs delayed,campaign,,,,,
+Resource Risk,Plug inventory shortage,Risk,0.02,0.50,1.0,3.0,Material logistics delay,campaign,,,,,
+Resource Risk,Explosives delivery delay,Risk,0.02,0.50,1.0,2.0,Perforation cannot proceed until resolved,campaign,,,,,
+#
+# =============================================================================
+# EXTERNAL RISKS
+# Scope = campaign: single event affecting the whole operation.
+# =============================================================================
+External Risk,Permit / regulatory delay,Risk,0.02,1.0,3.0,10.0,Operations suspended pending regulatory action,campaign,,,,,
+External Risk,Site access restriction,Risk,0.03,0.5,2.0,5.0,Crew or equipment movement affected,campaign,,,,,
+External Risk,Weather delay,Risk,0.05,0.25,1.0,4.0,Operations paused due to weather,campaign,,,,,
+External Risk,Security restriction,Risk,0.01,1.0,3.0,7.0,Work suspended pending security clearance,campaign,,,,,
+External Risk,Lockdown / travel restriction,Risk,0.01,2.0,5.0,15.0,Crew rotation severely disrupted,campaign,,,,,
+External Risk,Camp capacity issue,Risk,0.02,0.5,1.0,3.0,Crew rotation delay due to accommodation shortage,campaign,,,,,
+External Risk,Vendor mobilization delay,Risk,0.03,0.5,1.5,5.0,Specialist service not available on schedule,campaign,,,,,

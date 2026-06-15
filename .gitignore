@@ -1,51 +1,11 @@
-# R
-
 .Rproj.user
-
 .Rhistory
-
 .RData
-
 .Ruserdata
-
-# macOS
-
 .DS_Store
-
-# Outputs
-
 outputs/*.csv
-
 outputs/*.png
-
-# Private data
-
 data/private/
-
 data/raw/
-
-# Excel files
-
 *.xlsx
-
 *.xlsm
-
-# Quarto / rendered documents
-
-README.html
-
-README_files/
-
-*_files/
-
-# Logs
-
-*.log
-
-# Temporary files
-
-*.tmp
-
-# Shiny cache
-
-.rsconnect/

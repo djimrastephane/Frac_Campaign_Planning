@@ -1,14 +1,61 @@
-﻿WellID,PadID,ActivityType,CompletionType,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,JobDays,FracDays,SCMTDays,MillingDays,ProppantLbs,FracDaysPerStage,MillingDaysPerPlug
-Well_001,Pad_01,Frac,Completion,4,4,0,0,17.7,0,0,0,0,0,0
-Well_002,Pad_01,Frac,Completion,1,1,0,0,29.92,0,0,0.89,0,0,0
-Well_003,Pad_02,Frac,Completion,6,6,6,0,65.79,55.54,0,0,862778,9.26,0
-Well_004,Pad_02,Frac,Completion,7,7,7,0,97.83,30,0.42,4.69,1640264,4.29,0.67
-Well_005,Pad_03,Frac,Completion,4,4,4,0,36.48,18.93,0.75,5.73,942363,4.73,1.43
-Well_006,Pad_03,Frac,Completion,6,5,6,0,14.83,8.84,0.5,0,1364306,1.77,0
-Well_007,Pad_01,Frac,Completion,9,9,11,2,23.06,14.65,0.71,0,2146323,1.63,0
-Well_008,Pad_01,Frac,Completion,7,7,9,2,19.6,13.48,0.33,8.27,1214248,1.93,0.92
-Well_009,Pad_01,Frac,Completion,9,9,13,4,24.75,20.05,0.78,0,2185326,2.23,0
-Well_010,Pad_04,Frac,Completion,6,6,8,0,46.29,20.14,0.63,6.76,1475260,3.36,0.85
-Well_011,Pad_04,Frac,Completion,6,6,6,0,12.74,6.71,0,3.1,1437937,1.12,0.52
-Well_012,Pad_04,Frac,Completion,7,7,7,0,20.54,7.23,0.48,4.76,1501143,1.03,0.68
-Well_013,Pad_04,Frac,Completion,7,7,8,1,23.82,12.78,0.5,2.85,1529112,1.83,0.36
+WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracDays,SCMTDays,MillingDays,FracDaysPerStage,MillingDaysPerPlug
+#
+# HISTORICAL WELLS TEMPLATE
+# Frac Campaign Planning Simulator
+#
+# HOW TO USE THIS FILE
+# --------------------
+# Each row is one COMPLETED well from a previous campaign.
+# The engine resamples FracDaysPerStage and MillingDaysPerPlug as bootstrap
+# distributions -- the more historical wells you supply, the better calibrated
+# the simulation will be.
+#
+# MINIMUM REQUIREMENT: at least 5 wells with positive FracDaysPerStage and
+# MillingDaysPerPlug values. The engine will reject the file if all values
+# in either column are zero or missing.
+#
+# COLUMN DEFINITIONS
+# ------------------
+# WellID            : unique well identifier (string, used in audit output)
+# PadID             : pad identifier (string)
+# StagesPlanned     : number of frac stages originally planned
+# StagesCompleted   : number of frac stages actually pumped
+# PlugsInstalled    : number of isolation plugs set (usually = StagesCompleted - 1)
+# ContingencyPlugs  : extra plugs required due to failures / premature sets
+# FracDays          : total pumping days for this well
+# SCMTDays          : CT/wireline time for cement evaluation (0 if run offline)
+# MillingDays       : total milling days for this well
+# FracDaysPerStage  : FracDays / StagesCompleted (key distribution for sampling)
+# MillingDaysPerPlug: MillingDays / PlugsInstalled (key distribution for sampling)
+#
+# CALIBRATION NOTES
+# -----------------
+# FracDaysPerStage: include only stages that were pumped to design.
+#   Exclude screen-outs if they artificially inflate the value and are
+#   already captured separately as a risk event.
+# MillingDaysPerPlug: use actual milling time per plug drilled out.
+#   If you had contingency plugs, include them in the denominator.
+#
+# DATA QUALITY CHECKS
+# -------------------
+# The validation step will warn if:
+#   - FracDaysPerStage < 0.1 (likely a calculation error)
+#   - MillingDaysPerPlug > 5.0 (check for outliers)
+#   - StagesCompleted != StagesPlanned (flag for review -- was this a curtailed well?)
+#
+# =============================================================================
+# EXAMPLE DATA (replace with your actual historical campaign data)
+# =============================================================================
+W-001,Pad_A,6,6,5,0,11.6,1.0,3.4,1.93,0.68
+W-002,Pad_A,6,6,5,0,12.0,0.8,3.5,2.00,0.70
+W-003,Pad_A,6,5,4,1,10.3,1.2,3.1,2.06,0.78
+W-004,Pad_B,7,7,6,0,13.5,0.9,4.1,1.93,0.68
+W-005,Pad_B,7,7,6,0,14.0,1.0,4.2,2.00,0.70
+W-006,Pad_B,6,6,5,0,11.8,0.8,3.6,1.97,0.72
+W-007,Pad_C,8,8,7,0,15.4,1.1,4.8,1.93,0.69
+W-008,Pad_C,8,7,6,1,14.2,1.3,4.3,2.03,0.72
+W-009,Pad_C,6,6,5,0,6.2,0.5,2.0,1.03,0.40
+W-010,Pad_D,6,6,5,0,55.5,2.1,7.5,9.25,1.50
+W-011,Pad_D,7,7,6,0,13.3,0.9,4.0,1.90,0.67
+W-012,Pad_D,6,6,5,0,12.1,1.0,3.4,2.02,0.68
+W-013,Pad_E,7,7,6,0,14.8,1.2,4.5,2.11,0.75

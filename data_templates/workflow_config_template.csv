@@ -1,0 +1,83 @@
+activity,phase,resource,duration_source,conditional,path_type,notes
+#
+# WORKFLOW CONFIG TEMPLATE (optional override file)
+# Frac Campaign Planning Simulator
+#
+# HOW TO USE
+# ----------
+# Place this file as workflow_config.csv in the same directory as
+# master_risks_assumptions.csv. The engine will load it automatically
+# and use it instead of the built-in WORKFLOW_CONFIG.
+#
+# Only modify rows where your operation differs from the default.
+# You can add, remove, or re-sequence rows. The engine reads rows
+# in order within each phase, so row order controls sequence.
+#
+# COLUMN DEFINITIONS
+# ------------------
+# activity        : short name shown in audit output and the Workflow tab
+# phase           : pre_frac | frac_stage | post_frac
+# resource        : must match one of:
+#                     Wireline | Frac fleet | CT / cleanout | Milling | Testing unit
+#                   To add a new resource type, also update RESOURCE_CLASS_CONFIG
+#                   in simulation_engine.R.
+# duration_source : where the duration comes from:
+#                     param:<name>    look up in assumptions CSV by variable name
+#                     formula:<expr>  evaluated per-well (see formula notes below)
+#                     historical      resampled from historical_wells.csv column
+# conditional     : leave blank = always active
+#                     !scmt_offline   skip if SCMT runs offline
+#                     temp_log        only for wells with temperature log stages
+#                     is_zipper       only in zipper frac mode
+# path_type       : sequential = adds to resource workload (extends schedule)
+#                   parallel   = absorbed into available time (does not extend
+#                                schedule if spare capacity exists)
+# notes           : free text description
+#
+# FORMULA REFERENCE (duration_source = formula:...)
+# --------------------------------------------------
+# Available per-well variables:
+#   n_stages                 final stage count (after risk adjustments)
+#   n_plugs                  plug count (stages + extra plugs)
+#   wireline_time_per_stage  from sidebar input (days)
+#   frac_time_per_stage      from sidebar input (days)
+#   frac_settling_time       from sidebar input (days)
+#   milling_days_per_plug    sampled from historical distribution (days)
+#   flowback_days            sampled from flowback min/max range (days)
+#   temp_log_days            temp_log_count * temp_log_duration (days)
+#   isolation_plug_days      from assumptions CSV (days)
+#
+# EXAMPLE: replacing CT cleanout with a rig-based cleanup
+# --------------------------------------------------------
+# Change the resource column from "CT / cleanout" to "Rig" and add "Rig"
+# to RESOURCE_CLASS_CONFIG in simulation_engine.R:
+#   RESOURCE_CLASS_CONFIG <- dplyr::bind_rows(RESOURCE_CLASS_CONFIG,
+#     tibble::tibble(pattern = "rig|workover", resource_class = "rig"))
+#
+# =============================================================================
+# DEFAULT WORKFLOW (plug-and-perf completion)
+# Copy and modify as needed for your operation.
+# =============================================================================
+CT cleanout / scraper,pre_frac,CT / cleanout,param:Scraper / cleanout run,,sequential,CT scraper run to clean wellbore before completions
+SCMT cement eval,pre_frac,CT / cleanout,param:SCMT duration,!scmt_offline,sequential,Cement evaluation log via CT; skipped if SCMT is run offline
+Perforate stage,frac_stage,Wireline,formula:wireline_time_per_stage,,sequential,Wireline perforation run per stage
+Set isolation plug,frac_stage,Wireline,param:Isolation plug duration,,sequential,Set isolation plug before next perforation run
+Temperature log,frac_stage,Wireline,formula:temp_log_days/n_stages,temp_log,sequential,Optional temperature survey (only for selected stages)
+Pump stage,frac_stage,Frac fleet,formula:frac_time_per_stage,,sequential,Hydraulic fracturing execution per stage
+Frac settling,frac_stage,Frac fleet,formula:frac_settling_time,,sequential,Pressure bleed-off before wireline re-entry
+Mill out plugs,post_frac,Milling,formula:n_plugs * milling_days_per_plug,,sequential,Drill out all isolation plugs after frac completion
+Flowback + well test,post_frac,Testing unit,formula:flowback_days,,sequential,Post-frac flowback and pressure build-up well test
+#
+# =============================================================================
+# ALTERNATIVE EXAMPLES
+# Uncomment and replace lines above as needed.
+# =============================================================================
+#
+# Example: add a production logging run before milling
+# Prod logging run,post_frac,Wireline,param:Production log duration,,sequential,PLT run before milling begins
+#
+# Example: if your CT unit also handles temperature logging (combined spread)
+# Temperature log,frac_stage,CT / cleanout,formula:temp_log_days/n_stages,temp_log,sequential,Temperature log via CT (not wireline)
+#
+# Example: parallel activity that does not extend the schedule
+# Fluid sampling,post_frac,Testing unit,param:Fluid sample duration,,parallel,Fluid sample collected during milling window
