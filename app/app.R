@@ -865,17 +865,32 @@ server <- function(input, output, session) {
     bn <- bottlenecks_r() %>% arrange(priority, desc(p90_utilization)) %>% slice(1)
     rd <- readiness_r() %>% arrange(readiness_score) %>% slice(1)
 
-    # Two weakest readiness drivers, so the score explains itself.
+    # Two weakest readiness drivers, explained in operational units (days,
+    # %, $) rather than raw 0-100 sub-scores, so the score explains itself.
     drivers <- ""
     if (nrow(rd) == 1) {
-      comp <- c(
+      rd_stats <- stats %>% filter(operation_mode == rd$operation_mode) %>% slice(1)
+      rd_wireline_days <- mean(
+        sim_results()$summary$total_wireline_readiness_delay_days[
+          sim_results()$summary$operation_mode == rd$operation_mode], na.rm = TRUE)
+
+      comp_scores <- c(
         "Schedule certainty" = rd$schedule_score,
         "Resource capacity" = rd$resource_score,
         "Risk exposure" = rd$risk_score,
         "Wireline readiness" = rd$wireline_score
       )
-      comp <- sort(comp)[1:2]
-      drivers <- paste0(names(comp), " (", round(comp, 0), ")", collapse = ", ")
+      comp_desc <- c(
+        "Schedule certainty" = sprintf("P90 is %.0f d above P50 (%.0f%% wider)",
+          rd_stats$p90_days - rd_stats$p50_days, 100 * rd$uncertainty_ratio),
+        "Resource capacity" = sprintf("peak utilization %.0f%%", 100 * rd$max_p90_utilization),
+        "Risk exposure" = sprintf("risk events add ~%.0f d (%.0f%% of campaign)",
+          rd_stats$mean_risk_delay_days, 100 * rd$risk_delay_ratio),
+        "Wireline readiness" = sprintf("frac fleet idle ~%.0f d waiting on wireline (~%s)",
+          rd_wireline_days, fmt_money_short(rd_wireline_days * input$frac_fleet_cost))
+      )
+      weakest <- names(sort(comp_scores))[1:2]
+      drivers <- paste(paste0(weakest, " – ", comp_desc[weakest]), collapse = "; ")
     }
 
     idle_days <- mean(sim_results()$summary$total_wireline_readiness_delay_days, na.rm = TRUE)
