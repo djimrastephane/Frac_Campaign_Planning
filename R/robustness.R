@@ -90,21 +90,46 @@ assess_recommendation_robustness <- function(
 
   base_res <- .robustness_run_one(base_args, rec_cost_args)
 
-  jobs <- expand.grid(parameter = perturb_params, direction = c(-1, 1), stringsAsFactors = FALSE)
+  # "ALL" jobs perturb every candidate assumption together in the same
+  # direction -- a combined best-case (-1, all favourable) and stress-case
+  # (+1, all unfavourable) bundle, alongside the one-at-a-time jobs.
+  jobs <- bind_rows(
+    expand.grid(parameter = perturb_params, direction = c(-1, 1), stringsAsFactors = FALSE),
+    tibble(parameter = "ALL", direction = c(-1, 1))
+  )
 
   job_results <- .par_lapply(seq_len(nrow(jobs)), function(i) {
     param <- jobs$parameter[i]
     direction <- jobs$direction[i]
     args <- base_args
-    base_val <- as.numeric(base_args[[param]] %||% 0)
-    args[[param]] <- base_val * (1 + direction * perturb_pct)
+    sweep_params <- if (identical(param, "ALL")) perturb_params else param
+    for (p in sweep_params) {
+      base_val <- as.numeric(base_args[[p]] %||% 0)
+      args[[p]] <- base_val * (1 + direction * perturb_pct)
+    }
     out <- .robustness_run_one(args, rec_cost_args)
     out$parameter <- param
     out$direction <- direction
-    out$value <- args[[param]]
+    out$value <- if (identical(param, "ALL")) NA_real_ else args[[param]]
     out
   }, n_cores)
-  perturbed <- bind_rows(job_results)
+  all_results <- bind_rows(job_results)
+  perturbed <- all_results %>% filter(parameter != "ALL")
+
+  # Combined best/base/stress scenario summary.
+  combined <- bind_rows(
+    all_results %>% filter(parameter == "ALL", direction == -1) %>% mutate(scenario = "Best case"),
+    base_res %>% mutate(scenario = "Base case"),
+    all_results %>% filter(parameter == "ALL", direction == 1) %>% mutate(scenario = "Stress case")
+  ) %>%
+    mutate(
+      delta_p50_days = p50_days - base_res$p50_days,
+      stable = recommendation == base_res$recommendation,
+      scenario = factor(scenario, levels = c("Best case", "Base case", "Stress case"))
+    ) %>%
+    arrange(scenario) %>%
+    select(scenario, p50_days, p90_days, delta_p50_days,
+           readiness_score, readiness_status, recommendation, bottleneck, stable)
 
   summary_tbl <- bind_rows(lapply(perturb_params, function(p) {
     low  <- perturbed %>% filter(parameter == p, direction == -1)
@@ -140,6 +165,7 @@ assess_recommendation_robustness <- function(
     base = base_res,
     detail = perturbed,
     summary = summary_tbl,
+    combined = combined,
     perturb_pct = perturb_pct,
     n_iterations = as.integer(n_iterations)
   )

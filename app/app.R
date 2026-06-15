@@ -283,6 +283,12 @@ ui <- page_sidebar(
           actionButton("run_robustness", "Check robustness",
                        class = "btn-sm btn-primary mb-2", icon = icon("arrows-left-right")),
           uiOutput("robustness_summary"),
+          tags$h6("Best / base / stress case", class = "mt-3"),
+          p(class = "text-muted",
+            "All assumptions shifted together: \"Best case\" = all -15% (favourable), ",
+            "\"Stress case\" = all +15% (unfavourable)."),
+          DT::DTOutput("combined_scenario_table"),
+          tags$h6("Per-assumption detail (one-at-a-time)", class = "mt-3"),
           DT::DTOutput("robustness_table")
         )
       )
@@ -770,15 +776,26 @@ server <- function(input, output, session) {
     if (is.null(rb)) return(tags$p(class = "text-muted",
       "Not yet run. Click \"Check robustness\" to test the current recommendation against +-15% swings in 5 key assumptions."))
     n_unstable <- sum(!rb$summary$stable)
-    if (n_unstable == 0) {
+    oat_line <- if (n_unstable == 0) {
       tags$p(class = "text-success",
-        sprintf("Stable: \"%s\" holds across +-%.0f%% swings in all %d assumptions tested (n=%d iterations each).",
+        sprintf("One-at-a-time: \"%s\" holds across +-%.0f%% swings in all %d assumptions tested (n=%d iterations each).",
                 rb$base$recommendation, 100 * rb$perturb_pct, nrow(rb$summary), rb$n_iterations))
     } else {
       tags$p(class = "text-warning",
-        sprintf("Sensitive: the base recommendation is \"%s\", but it flips under a +-%.0f%% swing in %d of %d assumptions (n=%d iterations each) - see table for which ones.",
+        sprintf("One-at-a-time: the base recommendation is \"%s\", but it flips under a +-%.0f%% swing in %d of %d assumptions (n=%d iterations each) - see table for which ones.",
                 rb$base$recommendation, 100 * rb$perturb_pct, n_unstable, nrow(rb$summary), rb$n_iterations))
     }
+    stress <- rb$combined %>% dplyr::filter(scenario == "Stress case")
+    stress_line <- if (isTRUE(stress$stable)) {
+      tags$p(class = "text-success",
+        sprintf("Combined stress case (all %d assumptions +-%.0f%% unfavourable together): recommendation unchanged, P50 %+.1f d vs base.",
+                nrow(rb$summary), 100 * rb$perturb_pct, stress$delta_p50_days))
+    } else {
+      tags$p(class = "text-warning",
+        sprintf("Combined stress case (all %d assumptions +-%.0f%% unfavourable together): recommendation changes to \"%s\", P50 %+.1f d vs base.",
+                nrow(rb$summary), 100 * rb$perturb_pct, stress$recommendation, stress$delta_p50_days))
+    }
+    tagList(oat_line, stress_line)
   })
   output$robustness_table <- DT::renderDT({
     rb <- robustness_rv()
@@ -798,6 +815,20 @@ server <- function(input, output, session) {
       Note = note
     )
     DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE, pageLength = 10))
+  })
+  output$combined_scenario_table <- DT::renderDT({
+    rb <- robustness_rv()
+    if (is.null(rb)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- rb$combined %>% dplyr::transmute(
+      Scenario = as.character(scenario),
+      `P50 (d)` = round(p50_days, 1),
+      `P90 (d)` = round(p90_days, 1),
+      `Delta P50 vs base (d)` = sprintf("%+.1f", delta_p50_days),
+      Readiness = sprintf("%.0f (%s)", readiness_score, readiness_status),
+      Recommendation = recommendation,
+      `Vs. base` = ifelse(stable, "Unchanged", "Changed")
+    )
+    DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
   })
 
   output$decision_narrative   <- renderUI({ req(sim_results()); tags$p(decision_narrative_r()$narrative) })
