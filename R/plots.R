@@ -83,6 +83,34 @@ plot_campaign_distribution <- function(results) {
   }
 }
 
+# Overlays the duration S-curve for each saved scenario-library record.
+# `records` is the list produced by build_scenario_record() in scenario_library.R.
+plot_scenario_comparison <- function(records) {
+  if (length(records) == 0) {
+    return(ggplot() + labs(title = "No saved scenarios yet") + theme_frac())
+  }
+
+  df <- bind_rows(lapply(records, function(r) {
+    tibble(label = r$label, estimated_campaign_days = r$duration)
+  }))
+  pct <- df %>%
+    group_by(label) %>%
+    summarise(p50 = quantile(estimated_campaign_days, 0.50, na.rm = TRUE), .groups = "drop")
+
+  ggplot(df, aes(estimated_campaign_days, colour = label)) +
+    stat_ecdf(linewidth = 1.1) +
+    geom_vline(data = pct, aes(xintercept = p50, colour = label),
+               linetype = "dashed", linewidth = 0.4, show.legend = FALSE) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+      title = "Saved scenarios - campaign duration S-curve (dashed = P50)",
+      x = "Estimated campaign duration, days",
+      y = "Cumulative probability",
+      colour = "Scenario"
+    ) +
+    theme_frac()
+}
+
 plot_campaign_scurve <- function(results) {
   if (is.list(results) && "summary" %in% names(results)) results <- results$summary
   if (is.null(results) || nrow(results) == 0) {

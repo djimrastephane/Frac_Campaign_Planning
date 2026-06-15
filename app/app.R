@@ -35,6 +35,7 @@ source(file.path(project_root, "R", "risk_uncertainty.R"))
 source(file.path(project_root, "R", "bottleneck_explain.R"))
 source(file.path(project_root, "R", "recommendations.R"))
 source(file.path(project_root, "R", "robustness.R"))
+source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
 source(file.path(project_root, "R", "plots.R"))
@@ -292,6 +293,38 @@ ui <- page_sidebar(
           DT::DTOutput("robustness_table")
         )
       )
+    ),
+
+    nav_panel(
+      "Scenario library",
+      card(
+        card_header("Save current scenario"),
+        card_body(
+          p(class = "text-muted",
+            "Snapshots the current run's configuration and key results so you can ",
+            "compare it against other configurations. If \"Compare both\" is selected, ",
+            "saves one entry per operation mode. Library holds up to ",
+            sprintf("%d scenarios", SCENARIO_LIBRARY_MAX), " (oldest is dropped once full)."),
+          layout_columns(
+            col_widths = c(8, 4),
+            textInput("scenario_label", NULL, placeholder = "Optional label (default: config summary)"),
+            actionButton("save_scenario", "Save scenario",
+                         class = "btn-sm btn-primary", icon = icon("bookmark"))
+          )
+        )
+      ),
+      card(
+        full_screen = TRUE,
+        card_header("Saved scenarios"),
+        card_body(
+          actionButton("remove_scenario", "Remove selected",
+                       class = "btn-sm btn-outline-danger mb-2", icon = icon("trash")),
+          actionButton("clear_scenarios", "Clear all",
+                       class = "btn-sm btn-outline-secondary mb-2", icon = icon("xmark")),
+          DT::DTOutput("scenario_library_table")
+        )
+      ),
+      plot_card("Saved scenarios - duration comparison", "scenario_comparison_plot", "430px")
     ),
 
     nav_panel(
@@ -830,6 +863,44 @@ server <- function(input, output, session) {
     )
     DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
   })
+
+  # --- Scenario library: save/compare run configurations -------------------
+  scenario_library_rv <- reactiveVal(list())
+  observeEvent(input$save_scenario, {
+    req(sim_results())
+    args_by_mode <- sim_results()$args_by_mode
+    new_records <- lapply(names(args_by_mode), function(mode) {
+      a <- args_by_mode[[mode]]; a$progress_callback <- NULL
+      build_scenario_record(sim_results(), a, label = input$scenario_label,
+        frac_fleet_cost_per_day = input$frac_fleet_cost,
+        wireline_cost_per_day = input$wireline_cost,
+        ct_cost_per_day = input$ct_cost,
+        milling_cost_per_day = input$milling_cost,
+        testing_unit_cost_per_day = input$testing_unit_cost)
+    })
+    scenario_library_rv(add_scenario_records(scenario_library_rv(), new_records))
+    updateTextInput(session, "scenario_label", value = "")
+  })
+  observeEvent(input$remove_scenario, {
+    sel <- input$scenario_library_table_rows_selected
+    df <- scenario_library_to_df(scenario_library_rv())
+    if (length(sel) > 0 && nrow(df) > 0) {
+      ids_to_remove <- df$id[sel]
+      current <- scenario_library_rv()
+      for (id in ids_to_remove) current <- remove_scenario_record(current, id)
+      scenario_library_rv(current)
+    }
+  })
+  observeEvent(input$clear_scenarios, { scenario_library_rv(list()) })
+  output$scenario_library_table <- DT::renderDT({
+    df <- scenario_library_to_df(scenario_library_rv())
+    if (nrow(df) == 0) return(DT::datatable(tibble(), options = list(dom = "t")))
+    DT::datatable(df %>% dplyr::select(-id), rownames = FALSE,
+                   options = list(dom = "t", scrollX = TRUE), selection = "multiple")
+  })
+  output$scenario_comparison_plot <- renderPlot({
+    plot_scenario_comparison(scenario_library_rv())
+  }, res = 96)
 
   output$decision_narrative   <- renderUI({ req(sim_results()); tags$p(decision_narrative_r()$narrative) })
   output$recommendation_panel <- renderText({ req(sim_results()); rec_v2_r()$panel })
