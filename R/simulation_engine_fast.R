@@ -600,7 +600,7 @@ synthetic_historical_wells <- function(n = 30, seed = 42) {
     plugs_installed     = plugs,
     contingency_plugs   = 0L,
     frac_days           = frac_days,
-    scmt_days           = round(runif(n, 0.5, 1.5), 2),
+    cement_eval_days           = round(runif(n, 0.5, 1.5), 2),
     milling_days        = mill_days,
     frac_days_per_stage = round(frac_dps, 3),
     milling_days_per_plug = round(mill_dpp, 3)
@@ -872,7 +872,7 @@ schedule_post_frac_milling <- function(release_times,
 #                   : "formula:<expr>" -> evaluated per-well (n_stages, n_plugs available)
 #                   : "historical" -> sampled from historical_wells
 #   conditional     : "" = always active
-#                   : "!scmt_offline" = only if SCMT is online
+#                   : "!cement_eval_offline" = only if cement eval is online
 #                   : "is_zipper" = only in zipper mode
 #   path_type       : "sequential" = adds to resource workload path
 #                   : "parallel"   = absorbed if < available campaign time
@@ -894,9 +894,9 @@ schedule_post_frac_milling <- function(release_times,
 #     CT precedes each well (less parallel time available).
 #     frac_related_per_well = ct_workload + max(frac_workload, wireline_workload)
 #
-#   SCMT OFFLINE RULE:
-#     If wireline_units >= 2: SCMT always runs offline (spare unit available).
-#     If wireline_units == 1: SCMT offline probability from assumptions CSV.
+#   cement eval OFFLINE RULE:
+#     If wireline_units >= 2: cement eval always runs offline (spare unit available).
+#     If wireline_units == 1: Cement eval offline probability from assumptions CSV.
 #
 #   WELL TRANSITION TYPE:
 #     First well on a new pad: pad_to_pad_move_hours (full mobilisation).
@@ -914,7 +914,7 @@ WORKFLOW_CONFIG <- tibble::tribble(
   "Pad-to-pad move",           "pre_frac",   "Frac fleet",     "formula:pad_to_pad_move_days",              "is_first_on_pad",    "sequential",  "Full rig-down + transport + rig-up when moving to a new pad. Applies once per pad (first well only). Set in sidebar: Pad-to-pad move, h.",
   "Within-pad well transition","pre_frac",   "Frac fleet",     "formula:well_to_well_transition_days",      "!is_first_on_pad",   "sequential",  "Short skid or lateral move to next wellhead on same pad. Applies to every non-first well. Set in sidebar: Within-pad well transition, h.",
   "CT cleanout / scraper",     "pre_frac",   "CT / cleanout",  "param:Scraper / cleanout run",              "",                   "parallel",    "CT scraper run. Runs in PARALLEL with frac on previous well (conventional). Only gates campaign if CT is slower than frac+wireline. See CT parallelism rule.",
-  "SCMT cement eval",          "pre_frac",   "CT / cleanout",  "param:SCMT duration",                       "!scmt_offline",      "parallel",    "Cement evaluation log via CT. Skipped if SCMT runs offline. AUTO-OFFLINE when wireline_units >= 2 (spare unit available). Otherwise: CSV probability row.",
+  "Cement evaluation",          "pre_frac",   "CT / cleanout",  "param:Cement eval duration",                       "!cement_eval_offline",      "parallel",    "Cement evaluation log via CT. Skipped if cement eval runs offline. AUTO-OFFLINE when wireline_units >= 2 (spare unit available). Otherwise: CSV probability row.",
   # --- Frac stage loop (per stage, repeats N_stages times) ----------------
   "Perforate stage",           "frac_stage", "Wireline",       "formula:wireline_time_per_stage_days",      "",                   "sequential",  "Wireline perforation run per stage. Time set in sidebar: Wireline time per stage, h.",
   "Set isolation plug",        "frac_stage", "Wireline",       "param:Isolation plug duration",             "",                   "sequential",  "Wireline plug-setting run after frac. Separate trip unless combo gun-plug tool used.",
@@ -1156,8 +1156,8 @@ simulate_campaign_detailed <- function(
 
   risk_grid <- build_risk_grid(risk_table, n_wells)
 
-  scmt_offline_prob <- get_param_prob_cached(param_cache, "SCMT offline", default = 0.8)
-  scmt_offline_prob <- max(0, min(1, scmt_offline_prob))
+  cement_eval_offline_prob <- get_param_prob_cached(param_cache, "Cement eval offline", default = 0.8)
+  cement_eval_offline_prob <- max(0, min(1, cement_eval_offline_prob))
 
   well_ids <- paste0("SimWell_", str_pad(seq_len(n_wells), width = 3, pad = "0"))
 
@@ -1179,7 +1179,7 @@ simulate_campaign_detailed <- function(
     temp_log_count <- sample_integer_param_cached(param_cache, "Temperature log stages", n_wells)
 
     milling_days_per_plug <- sample(hist_milling, n_wells, replace = TRUE)
-    scmt_days <- sample_param_cached(param_cache, "SCMT duration", n_wells)
+    cement_eval_days <- sample_param_cached(param_cache, "Cement eval duration", n_wells)
     cleanout_days <- sample_param_cached(param_cache, "Scraper / cleanout run", n_wells)
     temp_log_duration <- sample_param_cached(param_cache, "Temperature log duration", n_wells)
     isolation_plug_days <- sample_param_cached(param_cache, "Isolation plug duration", n_wells)
@@ -1192,10 +1192,10 @@ simulate_campaign_detailed <- function(
       pad_id = pad_assignment$pad_id,
       stages = stage_count,
       temp_log_stages = temp_log_count,
-      scmt_offline = rbinom(n_wells, 1, scmt_offline_prob) == 1,
+      cement_eval_offline = rbinom(n_wells, 1, cement_eval_offline_prob) == 1,
       frac_days_per_stage = frac_time_per_stage_days,
       milling_days_per_plug = milling_days_per_plug,
-      scmt_days = scmt_days,
+      cement_eval_days = cement_eval_days,
       cleanout_days = cleanout_days,
       temp_log_days = temp_log_count * temp_log_duration,
       isolation_plug_days = isolation_plug_days,
@@ -1239,7 +1239,7 @@ simulate_campaign_detailed <- function(
         # Plugs to mill = isolation plugs per final stage + replacement plugs
         # (adds_plug) + consequence plugs (e.g. isolation plug failure).
         plugs = final_stages + extra_plugs + extra_milling_plugs,
-        online_scmt_days = ifelse(scmt_offline, 0, scmt_days),
+        online_cement_eval_days = ifelse(cement_eval_offline, 0, cement_eval_days),
         milling_days = plugs * milling_days_per_plug,
         wireline_base_stage_days = final_stages * wireline_time_per_stage_days,
         wireline_contingency_days = (wireline_base_stage_days + wireline_rig_up_down_days) * (wireline_contingency_factor - 1),
@@ -1278,7 +1278,7 @@ simulate_campaign_detailed <- function(
         ) * mode_factor,
         # CT workload = primary duties + risk-induced interventions
         # (screenout cleanout, cement drillout, premature plug response).
-        ct_workload_days = online_scmt_days + cleanout_days + ct_risk_delay_days +
+        ct_workload_days = online_cement_eval_days + cleanout_days + ct_risk_delay_days +
           ct_consequence_days,
         frac_workload_days = frac_execution_days + external_risk_delay_days,
         # Milling workload after optional CT support.
@@ -1331,16 +1331,16 @@ simulate_campaign_detailed <- function(
     #   formula (ct + max(frac, wireline)) is retained as CT is more likely to
     #   be on the critical path in zipper where frac pace is faster.
     #
-    # SCMT offline rule (v17.3):
+    # Cement eval offline rule (v17.3):
     # ---------------------------
     # If wireline_units >= 2, a spare wireline unit is available during perforation,
-    # so SCMT can always run offline. Override scmt_offline for those wells.
+    # so cement eval can always run offline. Override cement_eval_offline for those wells.
     well_df <- well_df %>%
       mutate(
-        # With 2+ wireline units: SCMT always runs offline (spare unit available)
-        scmt_offline = scmt_offline | (wireline_units >= 2),
-        online_scmt_days = ifelse(scmt_offline, 0, scmt_days),
-        ct_workload_days = online_scmt_days + cleanout_days + ct_risk_delay_days +
+        # With 2+ wireline units: cement eval always runs offline (spare unit available)
+        cement_eval_offline = cement_eval_offline | (wireline_units >= 2),
+        online_cement_eval_days = ifelse(cement_eval_offline, 0, cement_eval_days),
+        ct_workload_days = online_cement_eval_days + cleanout_days + ct_risk_delay_days +
           ct_consequence_days,
         ct_fleet_days = ct_workload_days / ct_units
       ) %>%
@@ -1528,8 +1528,8 @@ simulate_campaign_detailed <- function(
       well_list[[iter_id]] <- well_df %>%
         select(
           simulation_id, operation_mode, pad_id, well_id, stages, extra_stages, final_stages,
-          temp_log_stages, scmt_offline, plugs, extra_plugs,
-          frac_days_per_stage, frac_settling_days, milling_days_per_plug, scmt_days, cleanout_days,
+          temp_log_stages, cement_eval_offline, plugs, extra_plugs,
+          frac_days_per_stage, frac_settling_days, milling_days_per_plug, cement_eval_days, cleanout_days,
           base_frac_days, frac_execution_days, wireline_time_per_stage_days, wireline_rig_up_down_days,
           wireline_contingency_pct, wireline_base_stage_days, wireline_contingency_days,
           temp_log_days, wireline_stage_readiness_days,

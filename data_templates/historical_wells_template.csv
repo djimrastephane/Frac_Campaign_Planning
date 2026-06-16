@@ -1,4 +1,4 @@
-WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracDays,SCMTDays,MillingDays,FracDaysPerStage,MillingDaysPerPlug
+WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracDays,CementEvalDays,MillingDays,FracDaysPerStage,MillingDaysPerPlug
 #
 # HISTORICAL WELLS TEMPLATE
 # Frac Campaign Planning Simulator
@@ -23,7 +23,7 @@ WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracD
 # PlugsInstalled    : number of isolation plugs set (usually = StagesCompleted - 1)
 # ContingencyPlugs  : extra plugs required due to failures / premature sets
 # FracDays          : total pumping days for this well
-# SCMTDays          : CT/wireline time for cement evaluation (0 if run offline)
+# CementEvalDays    : CT/wireline time for cement evaluation (0 if run offline)
 # MillingDays       : total milling days for this well
 # FracDaysPerStage  : FracDays / StagesCompleted (key distribution for sampling)
 # MillingDaysPerPlug: MillingDays / PlugsInstalled (key distribution for sampling)

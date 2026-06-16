@@ -44,7 +44,7 @@ suppressPackageStartupMessages({
 )
 .RISK_IMPACT <- c(
   "Frac fleet"    = "Frac pace governs the campaign; add fleet capacity or accelerate cycle time.",
-  "Wireline"      = "Wireline readiness gates frac; add a wireline unit or run SCMT offline.",
+  "Wireline"      = "Wireline readiness gates frac; add a wireline unit or run cement evaluation offline.",
   "CT / cleanout" = "CT prep/cleanout paces wells; add CT capacity or offload to milling support.",
   "Milling"       = "Plug milling queues post-frac; add a milling unit or enable CT support.",
   "Testing unit"  = "Testing/flowback unit shared with milling; add a testing unit."

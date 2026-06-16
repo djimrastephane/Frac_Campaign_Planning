@@ -22,7 +22,7 @@ Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Da
 #      extra_frac_days      = additional pumping time (re-frac, screenout pump)
 # 5. Probability = N/A for non-risk rows (Duration, Random input, Historical).
 # 6. Min/ML/Max Days = N/A for rows where value comes from historical data
-#    or is a pure probability (e.g. SCMT offline).
+#    or is a pure probability (e.g. Cement eval offline).
 # 7. Historical rows: Min/ML/Max are populated from the historical_wells.csv
 #    distribution at runtime -- the values shown here are reference only.
 #
@@ -39,14 +39,14 @@ Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Da
 Campaign Setup,Wells per pad,Random input,N/A,3,5,6,Defines number of pads,,,,,,
 Campaign Setup,Stages per well,Random input,N/A,5,6,8,Defines total stages per well,,,,,,
 Campaign Setup,Temperature log stages,Random input,N/A,1,1,2,Number of stages that receive a temperature survey,,,,,,
-Campaign Setup,SCMT offline,Random input,0.8,N/A,N/A,N/A,"Probability SCMT runs offline (not blocking frac). If No the SCMT duration blocks CT resource before frac.",,,,,,
+Campaign Setup,Cement eval offline,Random input,0.8,N/A,N/A,N/A,"Probability cement evaluation runs offline (not blocking frac). If No the cement eval duration blocks CT resource before frac.",,,,,,
 #
 # =============================================================================
 # BASE OPERATIONS
 # Duration rows: triangular distribution sampled per well per iteration.
 # Historical rows: resampled bootstrap from historical_wells.csv.
 # =============================================================================
-Base Operation,SCMT duration,Duration,N/A,0.5,1.0,2.0,CT resource time for cement evaluation (only charged if SCMT is online),,,,,,
+Base Operation,Cement eval duration,Duration,N/A,0.5,1.0,2.0,CT resource time for cement evaluation (only charged if cement eval is online),,,,,,
 Base Operation,Scraper / cleanout run,Duration,N/A,0.25,0.5,1.5,CT resource time for pre-frac wellbore cleanup,,,,,,
 Base Operation,Frac days per stage,Historical,N/A,1.03,1.93,9.26,"Pumping time per stage. Reference values from template data; actual values resampled from historical_wells.csv at runtime.",,,,,,
 Base Operation,Temperature log duration,Duration,N/A,0.10,0.25,0.50,Wireline time per temperature survey stage,,,,,,

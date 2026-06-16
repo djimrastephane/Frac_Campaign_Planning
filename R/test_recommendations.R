@@ -11,11 +11,11 @@ ASSUMPTIONS <- dplyr::bind_rows(
     "Stages per well",          "Param",   "param", NA,           8,         10,                14,        NA,                 NA,
     "Temperature log stages",   "Param",   "param", NA,           1,         2,                 3,         NA,                 NA,
     "Wells per pad",            "Param",   "param", NA,           2,         3,                 4,         NA,                 NA,
-    "SCMT duration",            "Param",   "param", NA,           0.5,       1.0,               2.0,       NA,                 NA,
+    "Cement eval duration",            "Param",   "param", NA,           0.5,       1.0,               2.0,       NA,                 NA,
     "Scraper / cleanout run",   "Param",   "param", NA,           0.3,       0.5,               1.0,       NA,                 NA,
     "Temperature log duration", "Param",   "param", NA,           0.2,       0.3,               0.5,       NA,                 NA,
     "Isolation plug duration",  "Param",   "param", NA,           0.3,       0.5,               1.0,       NA,                 NA,
-    "SCMT offline",             "Param",   "param", 0.8,          0,         0,                 0,         NA,                 NA
+    "Cement eval offline",             "Param",   "param", 0.8,          0,         0,                 0,         NA,                 NA
   ),
   tibble::tribble(
     ~variable,            ~category, ~type,  ~probability, ~min_days, ~most_likely_days, ~max_days, ~simulation_impact, ~scope,
@@ -27,7 +27,7 @@ HISTORICAL <- tibble::tibble(
   well_id = paste0("HW_", 1:30), pad_id = paste0("Pad_", ((1:30 - 1) %/% 3) + 1),
   stages_completed = sample(8:14, 30, TRUE), plugs_installed = sample(8:14, 30, TRUE),
   contingency_plugs = sample(0:2, 30, TRUE), frac_days = round(runif(30, 8, 18), 1),
-  scmt_days = round(runif(30, 0.5, 2), 2), milling_days = round(runif(30, 5, 12), 1),
+  cement_eval_days = round(runif(30, 0.5, 2), 2), milling_days = round(runif(30, 5, 12), 1),
   frac_days_per_stage = round(triangle_sample(0.5, 0.8, 2.5, 30), 3),
   milling_days_per_plug = round(triangle_sample(0.4, 0.7, 1.5, 30), 3)
 )

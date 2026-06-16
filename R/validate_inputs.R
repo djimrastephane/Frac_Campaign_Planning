@@ -6,7 +6,7 @@
 validate_historical_wells <- function(df) {
   required <- c(
     "well_id", "pad_id", "stages_completed", "plugs_installed",
-    "contingency_plugs", "frac_days", "scmt_days", "milling_days",
+    "contingency_plugs", "frac_days", "cement_eval_days", "milling_days",
     "frac_days_per_stage", "milling_days_per_plug"
   )
 

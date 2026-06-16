@@ -1,6 +1,6 @@
 # Frac Campaign Planning Simulator
 
-A Shiny application for planning and evaluating multi-pad hydraulic fracturing campaigns using Monte Carlo simulation, operational risk modelling with consequence propagation, resource-constrained discrete scheduling, and scenario optimisation.
+A Shiny application for planning and evaluating multi-pad hydraulic fracturing campaigns using Monte Carlo simulation, operational risk modelling with consequence propagation, resource-constrained discrete scheduling, Bayesian calibration, and scenario optimisation.
 
 The simulator is designed for completion engineers, project managers, and operations teams who need to estimate campaign duration, assess uncertainty, evaluate zipper frac strategies, quantify the impact of additional resources, and identify the most cost-effective execution configuration before field operations begin.
 
@@ -25,6 +25,8 @@ This project provides a data-driven framework for:
 - Automated optimum-scenario search (Pareto frontier)
 - Probability of meeting a target completion date or staying within a budget ceiling
 - Traceable, re-simulation-verified recommendations with an auto-generated management narrative
+- Bayesian updating of durations and risk probabilities from new campaign data
+- Automated distribution fitting and assumption calibration from historical wells
 - Decision support before execution
 
 ---
@@ -44,7 +46,7 @@ The model tracks five resources independently. Each has its own unit count, work
 |---|---|---|---|
 | **Frac fleet** | Frac fleets | Pumping spread (blenders, pump trucks, treating iron) | Stage execution, pressure testing |
 | **Wireline** | Wireline units | Wireline unit (truck, depth control, toolstring) | Perforation, plug setting, temperature logs |
-| **CT / cleanout** | CT / cleanout units | Light coiled tubing unit for well intervention | Pre-frac cleanout runs, SCMT support, screenout response, premature plug remediation |
+| **CT / cleanout** | CT / cleanout units | Light coiled tubing unit for well intervention | Pre-frac cleanout runs, cement evaluation support, screenout response, premature plug remediation |
 | **Milling** | Milling units | Dedicated plug-milling spread (PDM motor + mill BHA) | Post-frac plug drill-out |
 | **Testing unit** | Testing units | Wellhead flowback and well test equipment | Post-milling flowback, pressure build-up test |
 
@@ -54,7 +56,14 @@ The model tracks five resources independently. Each has its own unit count, work
 - Full plug-and-perf risk library: plug pressure test failure, screenout, premature plug set, perforation misfire, UPCT failure, cement in casing, cement above plug, isolation plug failure, plus resource and external risks
 - **Risk scope calibration**: risks are classified as `stage` (probability per stage, e.g. screenout), `well` (per well independently), or `campaign` (single event for whole campaign, e.g. crew unavailability). This prevents the common error of treating crew absences as 30 independent per-well events
 - **Consequence propagation**: each technical risk cascades into induced workload (wireline re-runs, CT interventions, extra milling plugs, testing interventions, extra pumping) rather than a direct delay only
+- **Schedule risk heatmap**: well × risk-event tile chart showing expected delay contribution per well, plus a well risk ranking bar chart and a Low / Medium / High / Critical classification per well (quartile-based)
 - All consequence values overridable per-risk from the assumptions CSV
+
+## Analytics & Learning
+- **Historical Learning Engine**: automatically fits Normal, Lognormal, Gamma, and Weibull distributions to `FracDaysPerStage` and `MillingDaysPerPlug` from historical wells; ranks fits by AIC/BIC/KS test; outputs a suggested min/mode/max table ready to paste into the assumptions CSV
+- **Sensitivity Analysis Engine**: one-at-a-time (OAT) ±20% sweep over all timing and scalar parameters, ±50% over risk event probabilities, and ±1 unit over resource counts; butterfly tornado chart ranked by P50 swing; mode-split grouped bar for Conventional vs Zipper comparison
+- **Bayesian Duration Updater**: Normal-Normal conjugate updating of `FracDaysPerStage` and `MillingDaysPerPlug` as new completed wells arrive; shows prior vs posterior distributions and 90% CI on the update. Beta-Binomial updating of risk event probabilities from observed event counts. Updated merged dataset flows back into the next simulation run
+- **What-If Scenario Builder**: define named override variants (e.g. add a frac fleet, change stages, change zipper efficiency) and compare all variants in a single batch run; P10/P50/P90 bars with error bars, S-curve overlay, readiness score and bottleneck per variant
 
 ## Decision Support
 - Executive KPI dashboard with readiness score and its drivers
@@ -89,7 +98,7 @@ The model tracks five resources independently. Each has its own unit count, work
 ### Decision support — narrative, recommendation, robustness and scenario library
 ![Decision support tab](docs/images/screenshots/02_decision_support.png)
 
-### Risks — tornado and consequence propagation
+### Risks — schedule risk heatmap, well ranking, tornado and consequence propagation
 ![Risks tab](docs/images/screenshots/03_risks.png)
 
 ### Resources — utilization and deployment
@@ -100,6 +109,18 @@ The model tracks five resources independently. Each has its own unit count, work
 
 ### Workflow — operational sequence viewer
 ![Workflow tab](docs/images/screenshots/06_workflow.png)
+
+### Historical Learning — distribution fitting and assumption calibration
+![Historical Learning tab](docs/images/screenshots/07_historical_learning.png)
+
+### Sensitivity Analysis — OAT tornado by planning variable
+![Sensitivity tab](docs/images/screenshots/08_sensitivity.png)
+
+### Bayesian Update — prior vs posterior duration and risk probability update
+![Bayesian Update tab](docs/images/screenshots/09_bayesian_update.png)
+
+### What-If Builder — scenario variant comparison
+![What-If tab](docs/images/screenshots/10_whatif.png)
 
 ---
 
@@ -113,7 +134,7 @@ Key dependencies as modelled:
 
 - **Wireline gates frac.** A stage cannot pump until wireline has perforated and set the plug. In zipper mode, if wireline workload per well exceeds frac workload per well, the frac fleet waits (`wireline_readiness_delay_days`) and the idle cost is reported.
 - **CT cleanout runs in parallel with frac (conventional).** CT preps well N+1 during well N's frac execution. CT only gates the campaign if it becomes the pacing resource (i.e. CT workload per well > frac+wireline workload per well). See Conventional Frac Execution Logic below.
-- **SCMT runs offline when a spare wireline unit exists.** If `wireline_units >= 2`, SCMT is always run offline (spare unit available for cement evaluation while primary unit perforates). With a single wireline unit, SCMT offline probability is set in the assumptions CSV (default 80%).
+- **Cement evaluation runs offline when a spare wireline unit exists.** If `wireline_units >= 2`, cement evaluation is always run offline (spare unit available while primary unit perforates). With a single wireline unit, cement evaluation offline probability is set in the assumptions CSV (default 80%).
 - **Frac trees gate zipper.** Zipper requires 2 trees minimum. With exactly 2, each inter-well transition incurs a swap delay; a 3rd tree reduces transition waiting (~5%), 4+ slightly more (~10%, diminishing).
 - **Milling follows frac** and is scheduled discretely. Milling cannot start until a well is fully fraced AND a milling unit AND testing unit are both free. Wells are scheduled in frac-release order; later wells can begin milling while earlier wells are still in flowback.
 - **CT / cleanout is separate from milling.** CT cleanout is pre-frac well intervention. Milling is post-frac plug drill-out on a dedicated milling spread. These are tracked as separate resources with separate utilization. Use "Allow CT to support milling" only if your CT unit genuinely does plug drill-outs.
@@ -130,7 +151,7 @@ For each well (N = 1 to 30):
 ─────────────────────────────────────────────────────────────────────────
 PRE-FRAC (CT / cleanout — runs in parallel with previous well's frac):
   CT cleanout / scraper run        ~0.5 d  (from assumptions CSV)
-  SCMT cement evaluation           ~1.0 d  (if running online; else 0)
+  Cement evaluation                ~1.0 d  (if running online; else 0)
   Note: CT preps well N during well N-1's frac execution.
         CT only delays campaign if ct_workload > (frac + wireline) per well.
 
@@ -176,7 +197,7 @@ For each pair of wells (A, B alternating):
 PRE-FRAC (overlapped — both wells prepped before first stage):
   CT cleanout: Well A              ~0.5 d
   CT cleanout: Well B              ~0.5 d  (CT moves after Well A)
-  SCMT: well A + B (if online)
+  Cement evaluation: well A + B (if online)
   Wireline: perforate Well A Stage 1
 
 FRAC STAGE LOOP (alternating wells):
@@ -272,7 +293,7 @@ frac_workload     = (stages × frac_time/stage
                   × zipper_efficiency_factor
 
 ct_workload       = cleanout duration
-                  + SCMT duration (if running online; 0 if offline)
+                  + cement eval duration (if running online; 0 if offline)
                   + risk delays (CT-class)
                   + induced CT interventions from consequences
 
@@ -321,8 +342,8 @@ campaign_days = max(frac_path_days, post_frac_completion)
 | Your operation differs in... | Adjust... | Where |
 |---|---|---|
 | Stage cycle times | Frac time per stage, wireline time per stage, settling time | Sidebar > Operation timing |
-| No SCMT or scraper run | Set duration rows to 0 in assumptions CSV | `master_risks_assumptions.csv` |
-| SCMT always offline | Set SCMT offline probability to 1.0 | `master_risks_assumptions.csv` |
+| No cement evaluation or scraper run | Set duration rows to 0 in assumptions CSV | `master_risks_assumptions.csv` |
+| Cement evaluation always offline | Set Cement eval offline probability to 1.0 | `master_risks_assumptions.csv` |
 | CT and milling are the same unit | Enable "Allow CT to support milling", set CT milling efficiency (0.65 default) | Sidebar > Resources |
 | Different milling rate | Supply actual MillingDaysPerPlug values | `historical_wells.csv` |
 | Risk likelihoods and delays | Probability / Min / ML / Max per risk | `master_risks_assumptions.csv` |
@@ -349,7 +370,7 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
           │ scope-aware risk probability (stage/well/campaign)
           │ consequence propagation (CT/wireline/milling/testing)
           │ CT cleanout parallel with frac path (conventional)
-          │ SCMT offline rule (wireline unit count driven)
+          │ cement eval offline rule (wireline unit count driven)
           │ two-pass CT capacity · discrete post-frac scheduler
           ▼
    ┌──────────┬─────────────┬──────────────┐
@@ -361,6 +382,8 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
    Analytics: readiness · bottlenecks · investment ranking
               consequence summary · constraint cascade
               deployment timeline · Pareto optimiser
+              schedule risk heatmap · sensitivity sweep
+              Bayesian updater · learning engine · what-if builder
                      ▼
    Decision layer: traceable recommendations (+ verify by
    re-simulation) · bottleneck explainability · risk
@@ -380,8 +403,12 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
 | Tab | Contents |
 |---|---|
 | **Overview** | KPI value boxes (best option, P50/P90, zipper saving, readiness + drivers, bottleneck, idle cost), investment ranking, S-curve, distribution, traffic lights |
-| **Decision support** | Management summary narrative, recommendation panel with "Verify by re-simulation", risk prediction table, uncertainty (P-values) table, constraint-relief cascade |
-| **Risks** | Tornado, consequence propagation (direct vs induced), top delay contributors, stage-level risks, detail tables |
+| **Decision support** | Management summary narrative, recommendation panel with "Verify by re-simulation", risk prediction table, uncertainty (P-values) table, constraint-relief cascade, robustness check, sensitivity tornado, scenario library |
+| **Historical Learning** | Automatic distribution fitting (Normal / Lognormal / Gamma / Weibull) to FracDaysPerStage and MillingDaysPerPlug; AIC/BIC/KS ranking; density overlay; Q-Q plot; suggested assumptions table |
+| **Sensitivity** | OAT ±20% sweep (timing, scalars), ±50% (risk probabilities), ±1 unit (resources); tornado ranked by P50 swing; Conventional vs Zipper mode comparison grouped bar |
+| **Bayesian Update** | Upload new completed-well observations; Normal-Normal conjugate duration update with prior vs posterior density overlay; Beta-Binomial risk probability update; merged dataset fed back to next simulation |
+| **What-If** | Define named variants (resource counts, timing, efficiency overrides); P10/P50/P90 bar chart with error bars; S-curve overlay; readiness and bottleneck per variant |
+| **Risks** | Schedule risk heatmap (well × risk-event expected delay), well risk ranking and classification, tornado, consequence propagation (direct vs induced), top delay contributors, stage-level risks, detail tables |
 | **Resources** | Deployment timeline (Gantt-style), utilization, bottleneck detection, recommended actions, cost impact |
 | **Wireline & Readiness** | Stage-readiness constraint breakdown, readiness score |
 | **Optimiser** | Constraint cascade (greedy sequential fix, ROI per step) + Pareto grid search |
@@ -409,9 +436,11 @@ The grid-search optimiser answers: *which configuration delivers the lowest time
 # Input Files
 
 ### historical_wells.csv
-Historical well performance. Required columns: WellID, PadID, StagesPlanned, StagesCompleted, PlugsInstalled, ContingencyPlugs, FracDays, SCMTDays, MillingDays, FracDaysPerStage, MillingDaysPerPlug.
+Historical well performance. Required columns: WellID, PadID, StagesPlanned, StagesCompleted, PlugsInstalled, ContingencyPlugs, FracDays, CementEvalDays, MillingDays, FracDaysPerStage, MillingDaysPerPlug.
 
 Minimum 5 wells with positive FracDaysPerStage and MillingDaysPerPlug values. More wells = better calibrated distribution. See `data_templates/historical_wells_template.csv`.
+
+The Historical Learning tab automatically fits distributions to FracDaysPerStage and MillingDaysPerPlug when this file is uploaded, and suggests updated min/mode/max values for the assumptions CSV.
 
 ### master_risks_assumptions.csv
 Assumptions and risk library. Required columns: Category, Variable / Risk Event, Type, Probability, Min Days, Most Likely Days, Max Days, Simulation Impact.
@@ -446,6 +475,7 @@ install.packages(c(
   "dplyr", "tidyr", "stringr", "tibble", "readr",
   "ggplot2", "scales",
   "DT", "janitor",
+  "MASS",        # distribution fitting (learning engine)
   "gridExtra",   # executive PDF report
   "zip"          # robust cross-platform audit package
 ))
@@ -472,7 +502,7 @@ Monte Carlo engine, historical duration extraction, risk framework, conventional
 - CT-supports-milling with discrete capacity transfer
 - Testing unit with post-frac flowback discrete scheduler
 - CT cleanout parallelism (conventional): CT runs in parallel with frac; only gates campaign if CT is the pacing resource
-- SCMT offline rule driven by wireline unit count
+- Cement evaluation offline rule driven by wireline unit count
 - Constraint cascade analyser (greedy sequential bottleneck resolution, ROI per step)
 - Scenario optimiser (Pareto frontier, common random numbers, one-click apply)
 - Executive PDF report (branded landscape, KPI dashboard, deployment timeline)
@@ -490,11 +520,18 @@ Monte Carlo engine, historical duration extraction, risk framework, conventional
 - Executive decision summary page prepended to the PDF report
 - Performance: bit-identical fast simulation engine and parallel scenario optimiser, keeping Standard/Audit modes and the grid-search optimiser responsive
 
-## Version 3.0 — Resource Scheduling Engine (Planned)
+## Version 3.0 — Analytics & Learning Layer (Completed)
+- **Historical Learning Engine**: automated MLE distribution fitting to FracDaysPerStage and MillingDaysPerPlug; AIC/BIC/KS ranking; density overlay and Q-Q plot; suggested assumption table
+- **Sensitivity Analysis Engine**: OAT perturbation sweep across all timing, risk probability, and resource variables; butterfly tornado chart; Conventional vs Zipper mode comparison
+- **Bayesian Duration and Risk Updater**: Normal-Normal conjugate duration updating; Beta-Binomial risk probability updating; merged dataset flows into next simulation
+- **What-If Scenario Builder**: batch variant comparison with P10/P50/P90, S-curve overlay, readiness and bottleneck per variant
+- **Schedule Risk Heatmap**: well × risk-event expected delay tile chart; well risk ranking with Low/Medium/High/Critical classification; pad-level rollup
+
+## Version 4.0 — Resource Scheduling Engine (Planned)
 Discrete-event scheduling, true critical path, drilling programme integration, pad-to-pad resource movement, multi-fleet sequencing, schedule-accurate Gantt charts.
 
-## Version 4.0 — Campaign Planning Platform (Planned)
-Scenario management, historical campaign backtesting (predicted vs actual), Bayesian updating of risk probabilities from observed events, portfolio-level planning.
+## Version 5.0 — Campaign Planning Platform (Planned)
+Scenario management, historical campaign backtesting (predicted vs actual), portfolio-level planning.
 
 ---
 

@@ -26,7 +26,7 @@ activity,phase,resource,duration_source,conditional,path_type,notes
 #                     formula:<expr>  evaluated per-well (see formula notes below)
 #                     historical      resampled from historical_wells.csv column
 # conditional     : leave blank = always active
-#                     !scmt_offline   skip if SCMT runs offline
+#                     !cement_eval_offline   skip if cement evaluation runs offline
 #                     temp_log        only for wells with temperature log stages
 #                     is_zipper       only in zipper frac mode
 # path_type       : sequential = adds to resource workload (extends schedule)
@@ -59,7 +59,7 @@ activity,phase,resource,duration_source,conditional,path_type,notes
 # Copy and modify as needed for your operation.
 # =============================================================================
 CT cleanout / scraper,pre_frac,CT / cleanout,param:Scraper / cleanout run,,sequential,CT scraper run to clean wellbore before completions
-SCMT cement eval,pre_frac,CT / cleanout,param:SCMT duration,!scmt_offline,sequential,Cement evaluation log via CT; skipped if SCMT is run offline
+Cement evaluation,pre_frac,CT / cleanout,param:Cement eval duration,!cement_eval_offline,sequential,Cement evaluation log via CT; skipped if cement eval is run offline
 Perforate stage,frac_stage,Wireline,formula:wireline_time_per_stage,,sequential,Wireline perforation run per stage
 Set isolation plug,frac_stage,Wireline,param:Isolation plug duration,,sequential,Set isolation plug before next perforation run
 Temperature log,frac_stage,Wireline,formula:temp_log_days/n_stages,temp_log,sequential,Optional temperature survey (only for selected stages)
