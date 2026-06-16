@@ -290,6 +290,8 @@ ui <- page_sidebar(
             "All assumptions shifted together: \"Best case\" = all -15% (favourable), ",
             "\"Stress case\" = all +15% (unfavourable)."),
           DT::DTOutput("combined_scenario_table"),
+          tags$h6("P50 sensitivity by assumption", class = "mt-3"),
+          plotOutput("robustness_tornado_plot", height = "300px"),
           tags$h6("Per-assumption detail (one-at-a-time)", class = "mt-3"),
           DT::DTOutput("robustness_table")
         )
@@ -864,6 +866,10 @@ server <- function(input, output, session) {
     )
     DT::datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
   })
+
+  output$robustness_tornado_plot <- renderPlot({
+    plot_robustness_tornado(robustness_rv())
+  }, res = 96)
 
   output$recommendation_confidence <- renderUI({
     req(sim_results())

@@ -111,6 +111,61 @@ plot_scenario_comparison <- function(records) {
     theme_frac()
 }
 
+# Butterfly/tornado chart: P50 delta for each ±perturb_pct OAT swing.
+# `robustness` is the list returned by assess_recommendation_robustness().
+plot_robustness_tornado <- function(robustness) {
+  if (is.null(robustness)) {
+    return(ggplot() +
+             labs(title = "Run the robustness check to see the assumption sensitivity chart") +
+             theme_frac())
+  }
+
+  base_p50       <- robustness$base$p50_days
+  perturb_pct_lbl <- sprintf("%.0f%%", 100 * robustness$perturb_pct)
+
+  df <- robustness$summary %>%
+    mutate(
+      low_delta  = low_p50_days  - base_p50,
+      high_delta = high_p50_days - base_p50,
+      swing      = abs(high_delta - low_delta)
+    ) %>%
+    arrange(swing) %>%
+    mutate(assumption = factor(assumption, levels = assumption))
+
+  df_long <- bind_rows(
+    df %>% transmute(assumption, delta = low_delta,  swing, stable, dir = paste0("-", perturb_pct_lbl)),
+    df %>% transmute(assumption, delta = high_delta, swing, stable, dir = paste0("+", perturb_pct_lbl))
+  ) %>%
+    mutate(impact = if_else(delta > 0, "Adds days", "Saves days"))
+
+  n_unstable <- sum(!robustness$summary$stable)
+  cap <- if (n_unstable > 0)
+    sprintf("Recommendation flips in %d assumption(s) under a +/-%s swing - see table below.",
+            n_unstable, perturb_pct_lbl)
+  else NULL
+
+  ggplot(df_long, aes(x = delta, y = assumption, fill = impact)) +
+    geom_col(alpha = 0.82, width = 0.55, position = "identity") +
+    geom_vline(xintercept = 0, linewidth = 0.7, colour = "grey25") +
+    geom_text(aes(label = sprintf("%+.1f d", delta),
+                  hjust = if_else(delta >= 0, -0.12, 1.12)),
+              size = 3.4, colour = "grey20") +
+    scale_fill_manual(values = c("Adds days" = "#D55E00", "Saves days" = "#009E73"), name = NULL) +
+    scale_x_continuous(
+      labels = function(x) sprintf("%+.0f d", x),
+      expand = expansion(mult = 0.22)
+    ) +
+    labs(
+      title = sprintf("Assumption sensitivity - P50 impact of a +/-%s swing", perturb_pct_lbl),
+      subtitle = sprintf("Base P50 = %.0f d - wider bar = assumption has more influence on the schedule",
+                         base_p50),
+      x = "P50 change vs base (days)",
+      y = NULL,
+      caption = cap
+    ) +
+    theme_frac()
+}
+
 plot_campaign_scurve <- function(results) {
   if (is.list(results) && "summary" %in% names(results)) results <- results$summary
   if (is.null(results) || nrow(results) == 0) {

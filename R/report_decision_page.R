@@ -169,29 +169,38 @@ build_robustness_scenario_page <- function(file, robustness = NULL, scenario_rec
 
   grDevices::pdf(file, width = 11.69, height = 8.27, onefile = TRUE)
   on.exit(grDevices::dev.off(), add = TRUE)
-  grid::grid.newpage()
-
-  # Header band
-  grid::grid.rect(y = grid::unit(1, "npc"), height = grid::unit(0.09, "npc"), just = "top",
-                  gp = grid::gpar(fill = navy, col = NA))
-  grid::grid.text("Robustness & Scenario Comparison", x = 0.035, y = 0.965, just = c("left", "center"),
-                  gp = grid::gpar(col = "white", fontface = "bold", cex = 1.35))
-  grid::grid.text("How sensitive is the recommendation to planning assumptions?",
-                  x = 0.035, y = 0.928, just = c("left", "center"),
-                  gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
-  grid::grid.text(format(Sys.time(), "%d %b %Y"), x = 0.965, y = 0.955, just = c("right", "center"),
-                  gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
 
   tt <- gridExtra::ttheme_minimal(
-    core = list(bg_params = list(fill = rep(c("white", panel_grey), length.out = 50), col = NA),
-                fg_params = list(cex = 0.66, hjust = 0, x = 0.05)),
+    core    = list(bg_params = list(fill = rep(c("white", panel_grey), length.out = 50), col = NA),
+                   fg_params = list(cex = 0.66, hjust = 0, x = 0.05)),
     colhead = list(bg_params = list(fill = navy, col = NA),
                    fg_params = list(col = "white", fontface = "bold", cex = 0.66, hjust = 0, x = 0.05)))
 
-  y <- 0.86
+  .page_header <- function(subtitle) {
+    grid::grid.newpage()
+    grid::grid.rect(y = grid::unit(1, "npc"), height = grid::unit(0.09, "npc"), just = "top",
+                    gp = grid::gpar(fill = navy, col = NA))
+    grid::grid.text("Robustness & Scenario Comparison", x = 0.035, y = 0.965, just = c("left", "center"),
+                    gp = grid::gpar(col = "white", fontface = "bold", cex = 1.35))
+    grid::grid.text(subtitle, x = 0.035, y = 0.928, just = c("left", "center"),
+                    gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
+    grid::grid.text(format(Sys.time(), "%d %b %Y"), x = 0.965, y = 0.955, just = c("right", "center"),
+                    gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
+  }
+  .page_footer <- function() {
+    grid::grid.lines(x = c(0.035, 0.965), y = 0.045, gp = grid::gpar(col = "#D5DCE3"))
+    grid::grid.text("Frac Campaign Planning Simulator - decision support", x = 0.035, y = 0.027,
+                    just = "left", gp = grid::gpar(col = "grey45", cex = 0.62))
+    grid::grid.text("Planning-level estimates - review EV against contract rates.",
+                    x = 0.965, y = 0.027, just = "right", gp = grid::gpar(col = "grey45", cex = 0.62))
+  }
 
+  # ---- Page: assumption robustness (always rendered) -------------------------
+  .page_header("How sensitive is the recommendation to planning assumptions?")
+  y <- 0.86
   grid::grid.text("Assumption robustness check", x = 0.035, y = y, just = c("left", "center"),
                   gp = grid::gpar(col = navy, fontface = "bold", cex = 0.92))
+
   if (!is.null(robustness)) {
     n_total    <- nrow(robustness$summary)
     n_unstable <- sum(!robustness$summary$stable)
@@ -211,44 +220,49 @@ build_robustness_scenario_page <- function(file, robustness = NULL, scenario_rec
       sprintf("Combined stress case (all %d assumptions +-%.0f%% unfavourable together): recommendation changes to \"%s\", P50 %+.1f d vs base.",
               n_total, 100 * robustness$perturb_pct, stress$recommendation[1], stress$delta_p50_days[1])
     }
-    grid::grid.text(paste(c(oat_line, stress_line), collapse = "\n"), x = 0.035, y = y - 0.045,
-                    just = c("left", "top"), gp = grid::gpar(cex = 0.74, col = "grey20", lineheight = 1.3))
+    grid::grid.text(paste(c(oat_line, stress_line), collapse = "\n"),
+                    x = 0.035, y = y - 0.045, just = c("left", "top"),
+                    gp = grid::gpar(cex = 0.74, col = "grey20", lineheight = 1.3))
 
+    # Best/base/stress table
     combined_tbl <- robustness$combined %>% transmute(
-      Scenario = as.character(scenario),
-      `P50 (d)` = round(p50_days, 1),
-      `P90 (d)` = round(p90_days, 1),
+      Scenario        = as.character(scenario),
+      `P50 (d)`       = round(p50_days, 1),
+      `P90 (d)`       = round(p90_days, 1),
       `Delta P50 (d)` = sprintf("%+.1f", delta_p50_days),
-      Readiness = sprintf("%.0f (%s)", readiness_score, readiness_status),
-      Recommendation = recommendation,
-      `Vs. base` = ifelse(stable, "Unchanged", "Changed")
+      Readiness       = sprintf("%.0f (%s)", readiness_score, readiness_status),
+      Recommendation  = recommendation,
+      `Vs. base`      = ifelse(stable, "Unchanged", "Changed")
     )
-    g <- gridExtra::tableGrob(as.data.frame(combined_tbl), rows = NULL, theme = tt)
-    grid::pushViewport(grid::viewport(x = 0.5, y = y - 0.21, width = 0.93, height = 0.18))
-    grid::grid.draw(g); grid::popViewport()
-    y <- y - 0.42
+    g_tbl <- gridExtra::tableGrob(as.data.frame(combined_tbl), rows = NULL, theme = tt)
+    grid::pushViewport(grid::viewport(x = 0.5, y = y - 0.195, width = 0.93, height = 0.155))
+    grid::grid.draw(g_tbl); grid::popViewport()
+
+    # Tornado chart (sensitivity by assumption) — smaller base font for PDF
+    tornado <- plot_robustness_tornado(robustness) + theme_frac(base_size = 9)
+    gp_tornado <- ggplotGrob(tornado)
+    grid::pushViewport(grid::viewport(x = 0.5, y = y - 0.505, width = 0.93, height = 0.32))
+    grid::grid.draw(gp_tornado); grid::popViewport()
   } else {
     grid::grid.text(
       "Not checked this session - run \"Check robustness\" in Decision support before generating the report to include this view.",
-      x = 0.035, y = y - 0.045, just = c("left", "top"), gp = grid::gpar(cex = 0.74, col = "grey45", lineheight = 1.3))
-    y <- y - 0.16
+      x = 0.035, y = y - 0.045, just = c("left", "top"),
+      gp = grid::gpar(cex = 0.74, col = "grey45", lineheight = 1.3))
   }
+  .page_footer()
 
+  # ---- Page: scenario comparison (only when records exist) -------------------
   if (length(scenario_records) > 0) {
-    grid::grid.text("Saved scenario comparison", x = 0.035, y = y, just = c("left", "center"),
+    .page_header("How do the saved configurations compare?")
+    grid::grid.text("Saved scenario comparison", x = 0.035, y = 0.86, just = c("left", "center"),
                     gp = grid::gpar(col = navy, fontface = "bold", cex = 0.92))
     sc_tbl <- scenario_library_to_df(scenario_records) %>% select(-id)
-    g2 <- gridExtra::tableGrob(as.data.frame(sc_tbl), rows = NULL, theme = tt)
-    grid::pushViewport(grid::viewport(x = 0.5, y = y - 0.20, width = 0.93, height = 0.22))
-    grid::grid.draw(g2); grid::popViewport()
+    g_sc <- gridExtra::tableGrob(as.data.frame(sc_tbl), rows = NULL, theme = tt)
+    grid::pushViewport(grid::viewport(x = 0.5, y = 0.62, width = 0.93, height = 0.40))
+    grid::grid.draw(g_sc); grid::popViewport()
+    .page_footer()
   }
 
-  # Footer
-  grid::grid.lines(x = c(0.035, 0.965), y = 0.045, gp = grid::gpar(col = "#D5DCE3"))
-  grid::grid.text("Frac Campaign Planning Simulator - decision support", x = 0.035, y = 0.027,
-                  just = "left", gp = grid::gpar(col = "grey45", cex = 0.62))
-  grid::grid.text("Planning-level estimates - review EV against contract rates.",
-                  x = 0.965, y = 0.027, just = "right", gp = grid::gpar(col = "grey45", cex = 0.62))
   invisible(file)
 }
 
