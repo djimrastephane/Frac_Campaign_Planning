@@ -36,6 +36,7 @@ source(file.path(project_root, "R", "bottleneck_explain.R"))
 source(file.path(project_root, "R", "recommendations.R"))
 source(file.path(project_root, "R", "robustness.R"))
 source(file.path(project_root, "R", "sensitivity_analysis.R"))
+source(file.path(project_root, "R", "whatif_builder.R"))
 source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
@@ -350,6 +351,80 @@ ui <- page_sidebar(
         card_header("Detailed sensitivity table — P50 at low / base / high perturbation"),
         card_body(DT::DTOutput("sensitivity_detail_table"))
       )
+    ),
+
+    nav_panel(
+      "What-If",
+      card(
+        card_header("Define up to 3 alternative configurations"),
+        card_body(
+          p(class = "text-muted",
+            "Each variant inherits all current simulation parameters. ",
+            "Only fill in what you want to change. Leave a variant label blank to skip it. ",
+            "Runs all active variants in parallel at 300 iterations — click ",
+            tags$strong("Run comparison"), " after the main simulation has completed."),
+
+          # Variant 1
+          tags$hr(),
+          tags$h6("Variant 1"),
+          layout_columns(
+            col_widths = c(3, 2, 2, 2, 2, 1),
+            textInput("wif_v1_label", "Label", placeholder = "e.g. +1 Frac fleet"),
+            selectInput("wif_v1_mode", "Mode",
+              choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
+            numericInput("wif_v1_frac",  "Frac fleets", value = NA, min = 1, max = 5),
+            numericInput("wif_v1_wl",    "Wireline units", value = NA, min = 1, max = 5),
+            numericInput("wif_v1_ct",    "CT units", value = NA, min = 1, max = 5),
+            numericInput("wif_v1_ml",    "Milling units", value = NA, min = 1, max = 5)
+          ),
+
+          # Variant 2
+          tags$h6("Variant 2"),
+          layout_columns(
+            col_widths = c(3, 2, 2, 2, 2, 1),
+            textInput("wif_v2_label", "Label", placeholder = "e.g. Zipper mode"),
+            selectInput("wif_v2_mode", "Mode",
+              choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
+            numericInput("wif_v2_frac",  "Frac fleets", value = NA, min = 1, max = 5),
+            numericInput("wif_v2_wl",    "Wireline units", value = NA, min = 1, max = 5),
+            numericInput("wif_v2_ct",    "CT units", value = NA, min = 1, max = 5),
+            numericInput("wif_v2_ml",    "Milling units", value = NA, min = 1, max = 5)
+          ),
+
+          # Variant 3
+          tags$h6("Variant 3"),
+          layout_columns(
+            col_widths = c(3, 2, 2, 2, 2, 1),
+            textInput("wif_v3_label", "Label", placeholder = "e.g. +1 WL +1 FF"),
+            selectInput("wif_v3_mode", "Mode",
+              choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
+            numericInput("wif_v3_frac",  "Frac fleets", value = NA, min = 1, max = 5),
+            numericInput("wif_v3_wl",    "Wireline units", value = NA, min = 1, max = 5),
+            numericInput("wif_v3_ct",    "CT units", value = NA, min = 1, max = 5),
+            numericInput("wif_v3_ml",    "Milling units", value = NA, min = 1, max = 5)
+          ),
+
+          tags$hr(),
+          layout_columns(
+            col_widths = c(4, 8),
+            actionButton("run_whatif", "Run comparison",
+                         class = "btn-sm btn-primary", icon = icon("play")),
+            uiOutput("whatif_status")
+          )
+        )
+      ),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(full_screen = TRUE,
+             card_header("Duration comparison — P50 with P10–P90 range"),
+             card_body(plotOutput("whatif_bars_plot", height = "380px"))),
+        card(full_screen = TRUE,
+             card_header("Duration S-curve overlay"),
+             card_body(plotOutput("whatif_scurve_plot", height = "380px")))
+      ),
+      card(full_screen = TRUE,
+           card_header("Side-by-side summary"),
+           card_body(DT::DTOutput("whatif_comparison_table")))
     ),
 
     nav_panel(
@@ -1030,6 +1105,83 @@ server <- function(input, output, session) {
       tags$span(class = paste("badge", badge_class), conf$label),
       tags$ul(class = "mt-2 mb-2 small text-muted", lapply(conf$detail, tags$li))
     )
+  })
+
+  # ---- What-If Scenario Builder (Issue #11) ---------------------------------
+  whatif_rv <- reactiveVal(NULL)
+  observeEvent(sim_results(), { whatif_rv(NULL) }, ignoreNULL = FALSE)
+
+  observeEvent(input$run_whatif, {
+    req(sim_results())
+
+    # Build variants from the three UI rows; skip any with a blank label.
+    .wif_variant <- function(label_in, mode_in, frac_in, wl_in, ct_in, ml_in) {
+      lbl <- trimws(label_in)
+      if (!nzchar(lbl)) return(NULL)
+      overrides <- list()
+      if (nzchar(mode_in)) overrides$operation_mode <- mode_in
+      if (!is.na(frac_in)) overrides$frac_fleets    <- as.integer(frac_in)
+      if (!is.na(wl_in))   overrides$wireline_units <- as.integer(wl_in)
+      if (!is.na(ct_in))   overrides$ct_units        <- as.integer(ct_in)
+      if (!is.na(ml_in))   overrides$milling_units   <- as.integer(ml_in)
+      setNames(list(overrides), lbl)
+    }
+
+    variants <- c(
+      .wif_variant(input$wif_v1_label, input$wif_v1_mode, input$wif_v1_frac,
+                   input$wif_v1_wl, input$wif_v1_ct, input$wif_v1_ml),
+      .wif_variant(input$wif_v2_label, input$wif_v2_mode, input$wif_v2_frac,
+                   input$wif_v2_wl, input$wif_v2_ct, input$wif_v2_ml),
+      .wif_variant(input$wif_v3_label, input$wif_v3_mode, input$wif_v3_frac,
+                   input$wif_v3_wl, input$wif_v3_ct, input$wif_v3_ml)
+    )
+
+    base_args <- sim_results()$args_by_mode[[focus_mode_r()]]
+    withProgress(message = "Running what-if comparison", value = 0.3, {
+      tryCatch({
+        whatif_rv(run_whatif_batch(
+          base_args, variants,
+          frac_fleet_cost_per_day   = input$frac_fleet_cost,
+          wireline_cost_per_day     = input$wireline_cost,
+          ct_cost_per_day           = input$ct_cost,
+          milling_cost_per_day      = input$milling_cost,
+          testing_unit_cost_per_day = input$testing_unit_cost
+        ))
+      }, error = function(e) {
+        showNotification(paste("What-if error:", conditionMessage(e)), type = "error", duration = 10)
+      })
+    })
+  })
+
+  output$whatif_status <- renderUI({
+    wif <- whatif_rv()
+    if (is.null(wif)) return(tags$small(class = "text-muted",
+      "Not yet run. Fill in at least one variant label and click Run comparison."))
+    n_sc <- length(wif$scenarios)
+    tags$small(class = "text-success",
+      sprintf("Done — %d scenario%s compared (base + %d variant%s).",
+              n_sc, if (n_sc != 1) "s" else "",
+              n_sc - 1L, if (n_sc - 1L != 1) "s" else ""))
+  })
+
+  output$whatif_bars_plot <- renderPlot({
+    plot_whatif_bars(whatif_rv())
+  }, res = 96)
+
+  output$whatif_scurve_plot <- renderPlot({
+    plot_whatif_scurve(whatif_rv())
+  }, res = 96)
+
+  output$whatif_comparison_table <- DT::renderDT({
+    wif <- whatif_rv()
+    if (is.null(wif)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    DT::datatable(wif$comparison, rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE)) %>%
+      DT::formatStyle("Scenario", fontWeight = "bold") %>%
+      DT::formatStyle("Δ P50 vs base",
+        color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00"))) %>%
+      DT::formatStyle("Δ cost vs base",
+        color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00")))
   })
 
   # --- Scenario library: save/compare run configurations -------------------

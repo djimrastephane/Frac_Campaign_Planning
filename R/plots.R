@@ -83,6 +83,73 @@ plot_campaign_distribution <- function(results) {
   }
 }
 
+# ---- What-If Scenario Builder (Issue #11) -----------------------------------
+
+# Grouped bar chart: P10–P90 range as an error band, P50 as a point,
+# one column-group per scenario. `whatif` is the list from run_whatif_batch().
+plot_whatif_bars <- function(whatif) {
+  if (is.null(whatif) || length(whatif$scenarios) == 0) {
+    return(ggplot() +
+             labs(title = "Define variants and run the comparison to see results") +
+             theme_frac())
+  }
+
+  df <- bind_rows(lapply(whatif$scenarios, function(s) {
+    tibble(
+      scenario = s$label,
+      p10      = s$p10_days,
+      p50      = s$p50_days,
+      p90      = s$p90_days,
+      is_base  = s$label == "Base"
+    )
+  })) %>%
+    mutate(scenario = factor(scenario, levels = unique(scenario)))
+
+  ggplot(df, aes(x = scenario, y = p50, fill = scenario)) +
+    geom_col(aes(alpha = is_base), width = 0.55) +
+    geom_errorbar(aes(ymin = p10, ymax = p90), width = 0.22, linewidth = 0.8, colour = "grey30") +
+    geom_text(aes(label = sprintf("P50: %.0f d", p50)), vjust = -0.4, size = 3.6, fontface = "bold") +
+    geom_text(aes(y = p90, label = sprintf("P90: %.0f d", p90)), vjust = -0.5, size = 3.0, colour = "grey40") +
+    scale_alpha_manual(values = c("TRUE" = 0.55, "FALSE" = 0.85), guide = "none") +
+    scale_fill_brewer(palette = "Set2", guide = "none") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+    labs(
+      title    = "What-If comparison — campaign duration",
+      subtitle = "Bar = P50 duration  |  Error bars = P10–P90 range",
+      x = NULL,
+      y = "Estimated campaign duration, days"
+    ) +
+    theme_frac(legend = "none")
+}
+
+# S-curve overlay for what-if scenarios.
+plot_whatif_scurve <- function(whatif) {
+  if (is.null(whatif) || length(whatif$scenarios) == 0) {
+    return(ggplot() + labs(title = "No what-if results yet") + theme_frac())
+  }
+
+  df <- bind_rows(lapply(whatif$scenarios, function(s) {
+    tibble(scenario = s$label, estimated_campaign_days = s$duration)
+  }))
+  pct <- df %>%
+    group_by(scenario) %>%
+    summarise(p50 = quantile(estimated_campaign_days, 0.50, na.rm = TRUE), .groups = "drop")
+
+  ggplot(df, aes(estimated_campaign_days, colour = scenario)) +
+    stat_ecdf(linewidth = 1.1) +
+    geom_vline(data = pct, aes(xintercept = p50, colour = scenario),
+               linetype = "dashed", linewidth = 0.4, show.legend = FALSE) +
+    scale_colour_brewer(palette = "Set2") +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+      title    = "What-If comparison — duration S-curve (dashed = P50)",
+      x = "Estimated campaign duration, days",
+      y = "Cumulative probability",
+      colour = "Scenario"
+    ) +
+    theme_frac()
+}
+
 # Overlays the duration S-curve for each saved scenario-library record.
 # `records` is the list produced by build_scenario_record() in scenario_library.R.
 plot_scenario_comparison <- function(records) {
