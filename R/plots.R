@@ -131,15 +131,11 @@ plot_learning_density <- function(learning) {
     geom_line(data = curve_df %>% filter(is_best),
               aes(x = x, y = density, colour = Distribution),
               linewidth = 1.4) +
-    scale_colour_manual(values = .LE_DIST_COLOURS, name = "Distribution") +
+    scale_colour_manual(values = .LE_DIST_COLOURS, name = NULL) +
+    guides(colour = guide_legend(nrow = 1)) +
     facet_wrap(~ parameter, scales = "free", ncol = 2) +
-    labs(
-      title    = "Duration distribution fitting — empirical vs candidates",
-      subtitle = "Solid line = best fit (lowest AIC)  |  Dashed = other candidates",
-      x = "Duration (days)",
-      y = "Density"
-    ) +
-    theme_frac(legend = "bottom")
+    labs(x = "Duration (days)", y = "Density") +
+    theme_frac(legend = "top")
 }
 
 # Q-Q plot: sample quantiles vs theoretical quantiles from best-fit distribution.
@@ -154,7 +150,7 @@ plot_learning_qq <- function(learning) {
     n  <- length(x)
     p  <- (seq_len(n) - 0.375) / (n + 0.25)  # Blom plotting positions
     th <- .qfun(p, r$best_fit$family, r$best_fit$params)
-    tibble(parameter = sprintf("%s\n(Best fit: %s)", r$label, r$best_fit$family),
+    tibble(parameter = r$label,
            observed  = x, theoretical = th, p = p)
   }))
 
@@ -172,12 +168,7 @@ plot_learning_qq <- function(learning) {
     scale_colour_gradient2(low = "#0072B2", mid = "#F0E442", high = "#D55E00",
                            midpoint = 0.5, name = "Quantile", labels = scales::percent_format()) +
     facet_wrap(~ parameter, scales = "free", ncol = 2) +
-    labs(
-      title    = "Q-Q plot vs best-fit distribution",
-      subtitle = "Points on the dashed line = perfect fit. Systematic curves = distribution mismatch.",
-      x = "Theoretical quantiles (days)",
-      y = "Observed quantiles (days)"
-    ) +
+    labs(x = "Theoretical quantiles (days)", y = "Observed quantiles (days)") +
     theme_frac(legend = "right")
 }
 
