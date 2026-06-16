@@ -1295,3 +1295,118 @@ plot_sensitivity_by_mode <- function(sensitivity, top_n = 10) {
     ) +
     theme_frac(legend = "bottom")
 }
+
+# ---- Issue #12: Schedule Risk Heatmap plots ----------------------------------
+
+.RISK_LEVEL_COLOURS <- c(
+  Low      = "#2ecc71",
+  Medium   = "#f39c12",
+  High     = "#e67e22",
+  Critical = "#c0392b"
+)
+
+#' Schedule risk heatmap: well \u00d7 risk-event tile chart.
+#'
+#' @param heatmap_data  Output of build_schedule_risk_heatmap().
+#' @param top_n_risks   Show only the top N risk-event types (by total expected delay).
+plot_schedule_risk_heatmap <- function(heatmap_data, top_n_risks = 10L) {
+  wm <- heatmap_data$well_matrix
+  if (is.null(wm) || nrow(wm) == 0) {
+    return(ggplot() + labs(title = "No risk event data available") + theme_frac())
+  }
+
+  # Order wells by numeric suffix (well_01, well_02, ...)
+  well_levels <- unique(wm$well_id)
+  well_num    <- suppressWarnings(as.integer(gsub("\\D", "", well_levels)))
+  well_levels <- well_levels[order(well_num, na.last = TRUE)]
+
+  # Top N risk events by total expected delay across all wells/modes
+  top_risks <- wm %>%
+    group_by(risk_event) %>%
+    summarise(tot = sum(expected_delay_days, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(tot)) %>%
+    slice_head(n = top_n_risks) %>%
+    pull(risk_event)
+
+  risk_levels <- rev(top_risks)  # highest total at top
+
+  df <- wm %>%
+    filter(risk_event %in% top_risks) %>%
+    mutate(
+      well_id    = factor(well_id,    levels = well_levels),
+      risk_event = factor(risk_event, levels = risk_levels),
+      delay_trunc = pmin(expected_delay_days, quantile(expected_delay_days, 0.99, na.rm = TRUE))
+    )
+
+  n_modes <- length(unique(df$operation_mode))
+
+  ggplot(df, aes(x = well_id, y = risk_event, fill = delay_trunc)) +
+    geom_tile(colour = "white", linewidth = 0.3) +
+    scale_fill_gradient2(
+      low      = "#f7f7f7",
+      mid      = "#fdae61",
+      high     = "#d73027",
+      midpoint = median(df$delay_trunc, na.rm = TRUE),
+      name     = "Expected\ndelay (days)",
+      labels   = function(x) sprintf("%.2f", x)
+    ) +
+    {if (n_modes > 1) facet_wrap(~operation_mode, ncol = 1, scales = "free_x") else NULL} +
+    labs(
+      title    = "Schedule risk heatmap \u2014 expected delay by well and risk type",
+      subtitle = sprintf("Top %d risk events; colour = expected delay days per campaign", top_n_risks),
+      x        = "Well",
+      y        = NULL
+    ) +
+    theme_frac(legend = "right") +
+    theme(
+      axis.text.x  = element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y  = element_text(size = 9),
+      panel.grid   = element_blank(),
+      strip.text   = element_text(face = "bold")
+    )
+}
+
+#' Well risk ranking bar chart.
+#'
+#' @param heatmap_data  Output of build_schedule_risk_heatmap().
+plot_well_risk_ranking <- function(heatmap_data) {
+  ws <- heatmap_data$well_scores
+  if (is.null(ws) || nrow(ws) == 0) {
+    return(ggplot() + labs(title = "No risk data available") + theme_frac())
+  }
+
+  # Order wells by numeric suffix
+  well_levels <- unique(ws$well_id)
+  well_num    <- suppressWarnings(as.integer(gsub("\\D", "", well_levels)))
+  well_levels <- well_levels[order(well_num, na.last = TRUE)]
+
+  df <- ws %>%
+    mutate(
+      well_id    = factor(well_id, levels = well_levels),
+      risk_level = factor(risk_level, levels = c("Low", "Medium", "High", "Critical"))
+    ) %>%
+    arrange(operation_mode, desc(total_expected_delay))
+
+  n_modes <- length(unique(df$operation_mode))
+
+  ggplot(df, aes(x = well_id, y = total_expected_delay, fill = risk_level)) +
+    geom_col(width = 0.75, alpha = 0.9) +
+    geom_text(aes(label = sprintf("%.2f d", total_expected_delay)),
+              vjust = -0.4, size = 2.8, colour = "grey30") +
+    scale_fill_manual(values = .RISK_LEVEL_COLOURS, drop = FALSE,
+                      name = "Risk level") +
+    {if (n_modes > 1) facet_wrap(~operation_mode, ncol = 2, scales = "free_y") else NULL} +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.15)),
+                       labels = function(x) sprintf("%.1f d", x)) +
+    labs(
+      title    = "Well risk ranking \u2014 total expected delay contribution",
+      subtitle = "Sum of expected delay days per well across all risk types",
+      x        = "Well",
+      y        = "Expected delay (days)"
+    ) +
+    theme_frac(legend = "bottom") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      strip.text  = element_text(face = "bold")
+    )
+}

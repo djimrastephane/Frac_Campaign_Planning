@@ -39,6 +39,7 @@ source(file.path(project_root, "R", "sensitivity_analysis.R"))
 source(file.path(project_root, "R", "whatif_builder.R"))
 source(file.path(project_root, "R", "bayesian_updater.R"))
 source(file.path(project_root, "R", "learning_engine.R"))
+source(file.path(project_root, "R", "risk_heatmap.R"))
 source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
@@ -583,6 +584,9 @@ ui <- page_sidebar(
 
     nav_panel(
       "Risks",
+      plot_card("Schedule risk heatmap — expected delay by well and risk type", "risk_heatmap_plot", "520px"),
+      plot_card("Well risk ranking — total expected delay per well", "well_risk_ranking_plot", "420px"),
+      table_card("Well risk scores", dt_wrap("well_risk_table", "360px")),
       plot_card("Expected schedule impact per campaign (tornado)", "tornado_plot", "460px"),
       plot_card("Consequence propagation: direct delay vs induced workload", "consequence_plot", "480px"),
       table_card("Consequence detail by risk", dt_wrap("consequence_table", "400px")),
@@ -961,6 +965,7 @@ server <- function(input, output, session) {
   sim_stats_r        <- reactive({ req(sim_results()); summarise_simulation(sim_results()$summary) })
   delay_r            <- reactive({ req(sim_results()); summarise_delay_contributors(sim_results()$risk_event_log) })
   stage_risk_r       <- reactive({ req(sim_results()); summarise_stage_level_risks(sim_results()$risk_event_log, sim_results()$summary) })
+  risk_heatmap_r     <- reactive({ req(sim_results()); build_schedule_risk_heatmap(sim_results()$risk_event_log, sim_results()$summary) })
   wireline_r         <- reactive({ req(sim_results()); summarise_wireline_constraint(sim_results()$summary, sim_results()$well_details) })
   traffic_r          <- reactive({ req(sim_results()); build_traffic_lights(sim_results()$summary, sim_results()$risk_event_log, sim_results()$resource_utilization) })
   readiness_r        <- reactive({ req(sim_results()); build_readiness_score(sim_results()$summary, sim_results()$risk_event_log, sim_results()$resource_utilization) })
@@ -1912,6 +1917,34 @@ server <- function(input, output, session) {
 
   output$scurve_plot   <- renderPlot({ req(sim_results()); plot_campaign_scurve(sim_results()$summary) }, res = 96)
   output$duration_plot <- renderPlot({ req(sim_results()); plot_campaign_distribution(sim_results()$summary) }, res = 96)
+  output$risk_heatmap_plot <- renderPlot({ plot_schedule_risk_heatmap(risk_heatmap_r()) }, res = 96)
+  output$well_risk_ranking_plot <- renderPlot({ plot_well_risk_ranking(risk_heatmap_r()) }, res = 96)
+  output$well_risk_table <- renderDT({
+    ws <- risk_heatmap_r()$well_scores
+    req(ws, nrow(ws) > 0)
+    ws %>%
+      transmute(
+        Mode                 = operation_mode,
+        Well                 = well_id,
+        Pad                  = pad_id,
+        `Exp. delay (d)`     = round(total_expected_delay, 2),
+        `Risk level`         = as.character(risk_level),
+        `Top risk`           = top_risk,
+        `Top risk delay (d)` = round(top_risk_delay, 2),
+        `# risk types`       = n_risk_types,
+        Rank                 = risk_rank
+      ) %>%
+      arrange(Mode, Rank) %>%
+      DT::datatable(rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE)) %>%
+      DT::formatStyle(
+        "Risk level",
+        backgroundColor = DT::styleEqual(
+          c("Low", "Medium", "High", "Critical"),
+          c("#d5f5e3", "#fef9e7", "#fdebd0", "#fadbd8")
+        )
+      )
+  })
+
   output$tornado_plot  <- renderPlot({ plot_risk_tornado(stage_risk_r()) }, res = 96)
   output$consequence_plot <- renderPlot({ plot_risk_consequences(consequences_r()) }, res = 96)
   output$consequence_table <- renderDT({
