@@ -510,12 +510,12 @@ Risk rows are processed generically — names are for display only. Rename, add,
 **Example rows (first few columns shown):**
 
 ```
-Category,Variable / Risk Event,Type,Probability,Min Days,Most Likely Days,Max Days,...,Scope
-Campaign Setup,Wells per pad,Random input,N/A,3,5,6,...,
-Base Operation,Cement eval duration,Duration,N/A,0.5,1.0,2.0,...,
-Technical Risk,Screen out,Risk,0.03,0.25,0.50,2.0,...,stage
-Resource Risk,Wireline crew unavailable,Risk,0.08,0.50,1.0,2.0,...,campaign
-External Risk,Weather delay,Risk,0.05,0.25,1.0,4.0,...,campaign
+Category,      Variable / Risk Event,    Type,        Probability,Min Days,Most Likely Days,Max Days,...,Scope
+Campaign Setup,Wells per pad,            Random input,N/A,        3,       5,               6,       ...,
+Base Operation,Cement eval duration,     Duration,    N/A,        0.5,     1.0,             2.0,     ...,
+Technical Risk,Screen out,               Risk,        0.03,       0.25,    0.50,            2.0,     ...,stage
+Resource Risk, Wireline crew unavailable,Risk,        0.08,       0.50,    1.0,             2.0,     ...,campaign
+External Risk, Weather delay,            Risk,        0.05,       0.25,    1.0,             4.0,     ...,campaign
 ```
 
 ---
@@ -539,12 +539,12 @@ Each row is one activity. Row order within each phase controls execution order.
 **Example rows:**
 
 ```
-activity,phase,resource,duration_source,conditional,path_type,notes
-CT cleanout / scraper,pre_frac,CT / cleanout,param:Scraper / cleanout run,,parallel,...
-Cement evaluation,pre_frac,CT / cleanout,param:Cement eval duration,!cement_eval_offline,parallel,...
-Pump stage,frac_stage,Frac fleet,formula:frac_time_per_stage,,sequential,...
-Mill out plugs,post_frac,Milling,formula:n_plugs * milling_days_per_plug,,sequential,...
-Flowback + well test,post_frac,Testing unit,formula:flowback_days,,sequential,...
+activity,             phase,     resource,     duration_source,                         conditional,         path_type, notes
+CT cleanout / scraper,pre_frac,  CT / cleanout,param:Scraper / cleanout run,            ,                    parallel,  ...
+Cement evaluation,    pre_frac,  CT / cleanout,param:Cement eval duration,              !cement_eval_offline,parallel,  ...
+Pump stage,           frac_stage,Frac fleet,   formula:frac_time_per_stage,             ,                    sequential,...
+Mill out plugs,       post_frac, Milling,      formula:n_plugs * milling_days_per_plug, ,                    sequential,...
+Flowback + well test, post_frac, Testing unit, formula:flowback_days,                   ,                    sequential,...
 ```
 
 To add a new activity, copy any row of the same phase, paste at the end of that phase section, and edit. To disable an activity without removing it, set its duration to 0 in `master_risks_assumptions.csv`.
