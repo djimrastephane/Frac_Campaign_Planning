@@ -35,6 +35,7 @@ source(file.path(project_root, "R", "risk_uncertainty.R"))
 source(file.path(project_root, "R", "bottleneck_explain.R"))
 source(file.path(project_root, "R", "recommendations.R"))
 source(file.path(project_root, "R", "robustness.R"))
+source(file.path(project_root, "R", "sensitivity_analysis.R"))
 source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
@@ -295,6 +296,59 @@ ui <- page_sidebar(
           tags$h6("Per-assumption detail (one-at-a-time)", class = "mt-3"),
           DT::DTOutput("robustness_table")
         )
+      )
+    ),
+
+    nav_panel(
+      "Sensitivity",
+      card(
+        card_header("Sensitivity analysis — what drives campaign duration?"),
+        card_body(
+          p(class = "text-muted",
+            "Identifies the planning variables that contribute most to campaign duration uncertainty. ",
+            "Runs one-at-a-time (OAT) perturbation sweeps: timing and operations scalars are nudged ",
+            "±20%, risk event probabilities are nudged ±50%, and resource counts are swept ±1 unit. ",
+            "Each perturbed configuration is re-simulated at reduced iterations (200) to estimate the ",
+            "P50 swing. Runs in parallel; typically takes 30–60 seconds depending on core count."),
+          layout_columns(
+            col_widths = c(4, 8),
+            actionButton("run_sensitivity", "Run sensitivity analysis",
+                         class = "btn-sm btn-primary", icon = icon("chart-bar")),
+            uiOutput("sensitivity_status")
+          )
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Driver ranking — P50 impact by variable (butterfly tornado)"),
+          card_body(plotOutput("sensitivity_tornado_plot", height = "520px")),
+          card_footer(tags$small(class = "text-muted",
+            "Bar width = P50 shift when assumption is perturbed. Wider bar = stronger influence on schedule. ",
+            "Faceted by operation mode when both Conventional and Zipper are simulated."))
+        )
+      ),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(
+          full_screen = TRUE,
+          card_header("Conventional vs Zipper — swing comparison (top 10 drivers)"),
+          card_body(plotOutput("sensitivity_bymode_plot", height = "380px")),
+          card_footer(tags$small(class = "text-muted",
+            "Compares how sensitive each mode is to each driver. ",
+            "Only available when 'Compare both' is selected."))
+        ),
+        card(
+          full_screen = TRUE,
+          card_header("Variable importance ranking"),
+          card_body(DT::DTOutput("sensitivity_ranking_table"))
+        )
+      ),
+      card(
+        full_screen = TRUE,
+        card_header("Detailed sensitivity table — P50 at low / base / high perturbation"),
+        card_body(DT::DTOutput("sensitivity_detail_table"))
       )
     ),
 
@@ -870,6 +924,101 @@ server <- function(input, output, session) {
   output$robustness_tornado_plot <- renderPlot({
     plot_robustness_tornado(robustness_rv())
   }, res = 96)
+
+  # ---- Sensitivity Analysis (Issue #8) --------------------------------------
+  sensitivity_rv <- reactiveVal(NULL)
+  observeEvent(sim_results(), { sensitivity_rv(NULL) }, ignoreNULL = FALSE)
+
+  observeEvent(input$run_sensitivity, {
+    req(sim_results())
+    withProgress(message = "Running sensitivity analysis", value = 0.3, {
+      tryCatch({
+        sensitivity_rv(run_sensitivity_analysis(
+          args_by_mode = sim_results()$args_by_mode
+        ))
+      }, error = function(e) {
+        showNotification(paste("Sensitivity error:", conditionMessage(e)), type = "error", duration = 10)
+      })
+    })
+  })
+
+  output$sensitivity_status <- renderUI({
+    sa <- sensitivity_rv()
+    if (is.null(sa)) return(tags$small(class = "text-muted",
+      "Not yet run. Click the button to sweep all planning variables and rank their impact on campaign duration."))
+    n_vars  <- nrow(sa$ranking)
+    top_lbl <- sa$ranking$label[1]
+    tags$small(class = "text-success",
+      sprintf("Done — %d variables swept across %s (±%s timing, ±%s risk prob., ±1 unit resources). Top driver: %s.",
+              n_vars, paste(sa$modes, collapse = " & "),
+              sprintf("%.0f%%", 100 * sa$scalar_perturb_pct),
+              sprintf("%.0f%%", 100 * sa$risk_perturb_pct),
+              top_lbl))
+  })
+
+  output$sensitivity_tornado_plot <- renderPlot({
+    plot_sensitivity_tornado(sensitivity_rv())
+  }, res = 96)
+
+  output$sensitivity_bymode_plot <- renderPlot({
+    plot_sensitivity_by_mode(sensitivity_rv())
+  }, res = 96)
+
+  output$sensitivity_ranking_table <- DT::renderDT({
+    sa <- sensitivity_rv()
+    if (is.null(sa)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- sa$ranking %>%
+      transmute(
+        Rank     = rank,
+        Variable = label,
+        Category = category,
+        Type     = type,
+        `Mean swing (d)` = round(mean_swing, 2),
+        `Max swing (d)`  = round(max_swing, 2)
+      )
+    DT::datatable(df, rownames = FALSE,
+                  options = list(dom = "tp", pageLength = 15, scrollX = TRUE)) %>%
+      DT::formatStyle("Rank", fontWeight = "bold") %>%
+      DT::formatStyle("Category",
+        backgroundColor = DT::styleEqual(
+          c("Timing", "Risk", "Resource", "Operations"),
+          c("#e8f4f8", "#fce8e0", "#e0f4ec", "#f4e0f0")
+        ))
+  })
+
+  output$sensitivity_detail_table <- DT::renderDT({
+    sa <- sensitivity_rv()
+    if (is.null(sa)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    pct_s <- sprintf("%.0f%%", 100 * sa$scalar_perturb_pct)
+    pct_r <- sprintf("%.0f%%", 100 * sa$risk_perturb_pct)
+    df <- sa$summary %>%
+      left_join(sa$ranking %>% select(variable, rank = rank), by = "variable") %>%
+      arrange(rank, operation_mode) %>%
+      transmute(
+        Rank              = rank,
+        Variable          = label,
+        Category          = category,
+        Mode              = operation_mode,
+        `Base P50 (d)`    = round(base_p50, 1),
+        `Low P50 (d)`     = round(low_p50,  1),
+        `Low delta (d)`   = round(low_delta, 2),
+        `High P50 (d)`    = round(high_p50,  1),
+        `High delta (d)`  = round(high_delta, 2),
+        `Total swing (d)` = round(swing, 2),
+        `Contribution %`  = round(contribution_pct, 1)
+      )
+    DT::datatable(df, rownames = FALSE,
+                  caption = htmltools::tags$caption(
+                    style = "caption-side: bottom; text-align: left; font-size: 0.82em; color: #666;",
+                    sprintf("Low = -%s (timing/ops) or -%s (risk prob.) or -1 unit (resource). High = +%s / +%s / +1.",
+                            pct_s, pct_r, pct_s, pct_r)),
+                  options = list(dom = "tp", pageLength = 20, scrollX = TRUE)) %>%
+      DT::formatStyle(
+        "Total swing (d)",
+        background = DT::styleColorBar(range(sa$summary$swing, na.rm = TRUE), "#d4edda"),
+        backgroundSize = "95% 60%", backgroundRepeat = "no-repeat", backgroundPosition = "center"
+      )
+  })
 
   output$recommendation_confidence <- renderUI({
     req(sim_results())

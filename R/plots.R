@@ -906,3 +906,110 @@ plot_pareto_frontier <- function(optim_results) {
     ) +
     theme_frac()
 }
+
+# ---- Sensitivity Analysis (Issue #8) ----------------------------------------
+
+# Category colours for the sensitivity tornado.
+.SA_CATEGORY_COLOURS <- c(
+  "Timing"      = "#0072B2",
+  "Risk"        = "#D55E00",
+  "Resource"    = "#009E73",
+  "Operations"  = "#CC79A7"
+)
+
+# Butterfly tornado ranked by swing magnitude, faceted by operation mode.
+# `sensitivity` is the list returned by run_sensitivity_analysis().
+# `top_n` limits to the top N variables by mean swing.
+plot_sensitivity_tornado <- function(sensitivity, top_n = 14) {
+  if (is.null(sensitivity)) {
+    return(ggplot() +
+             labs(title = "Run the sensitivity analysis to see the driver ranking chart") +
+             theme_frac())
+  }
+
+  summary_df <- sensitivity$summary
+  ranking    <- sensitivity$ranking
+
+  top_vars <- ranking %>% slice_head(n = top_n) %>% pull(variable)
+
+  df <- summary_df %>%
+    filter(variable %in% top_vars) %>%
+    mutate(label = factor(label, levels = rev(ranking$label[ranking$variable %in% top_vars])))
+
+  # Long form: one row per (variable \u00d7 mode \u00d7 direction)
+  df_long <- bind_rows(
+    df %>% transmute(label, category, operation_mode, delta = low_delta,  dir = "Low"),
+    df %>% transmute(label, category, operation_mode, delta = high_delta, dir = "High")
+  ) %>%
+    mutate(impact = if_else(delta > 0, "Adds days", "Saves days"))
+
+  n_modes   <- length(unique(df_long$operation_mode))
+  pct_label <- sprintf("%.0f%%", 100 * sensitivity$scalar_perturb_pct)
+  r_pct_lbl <- sprintf("%.0f%%", 100 * sensitivity$risk_perturb_pct)
+
+  ggplot(df_long, aes(x = delta, y = label, fill = category)) +
+    geom_col(alpha = 0.82, width = 0.60, position = "identity") +
+    geom_vline(xintercept = 0, linewidth = 0.7, colour = "grey25") +
+    geom_text(
+      aes(label = sprintf("%+.1f d", delta),
+          hjust = if_else(delta >= 0, -0.10, 1.10)),
+      size = 3.1, colour = "grey20"
+    ) +
+    scale_fill_manual(
+      values = .SA_CATEGORY_COLOURS,
+      name   = "Category",
+      breaks = names(.SA_CATEGORY_COLOURS)
+    ) +
+    scale_x_continuous(
+      labels  = function(x) sprintf("%+.0f d", x),
+      expand  = expansion(mult = 0.25)
+    ) +
+    labs(
+      title    = "Campaign duration sensitivity \u2014 driver ranking",
+      subtitle = sprintf(
+        "Timing/Operations: \u00b1%s swing  |  Risk probabilities: \u00b1%s swing  |  Resources: \u00b11 unit  |  Base P50 per mode shown in facet",
+        pct_label, r_pct_lbl),
+      x = "P50 change vs base (days)",
+      y = NULL
+    ) +
+    {if (n_modes > 1)
+      facet_wrap(~ operation_mode, ncol = 2,
+                 labeller = labeller(operation_mode = function(x)
+                   paste0(x, "  \u2014  base P50: ",
+                          round(sensitivity$base$p50_days[match(x, sensitivity$base$operation_mode)], 0), " d")))
+    } +
+    theme_frac(legend = "right")
+}
+
+# Grouped-bar chart: Conventional vs Zipper swing for each variable.
+# Designed for the "top drivers" subset, comparing how sensitive each mode is.
+plot_sensitivity_by_mode <- function(sensitivity, top_n = 10) {
+  if (is.null(sensitivity) || length(sensitivity$modes) < 2) {
+    return(ggplot() +
+             labs(title = if (is.null(sensitivity))
+               "Run sensitivity with both modes to compare Conventional vs Zipper drivers"
+               else "Run with 'Compare both' selected to see the Conventional vs Zipper comparison") +
+             theme_frac())
+  }
+
+  ranking <- sensitivity$ranking
+  top_vars <- ranking %>% slice_head(n = top_n) %>% pull(variable)
+
+  df <- sensitivity$summary %>%
+    filter(variable %in% top_vars) %>%
+    mutate(label = factor(label, levels = rev(ranking$label[ranking$variable %in% top_vars])))
+
+  ggplot(df, aes(x = swing, y = label, fill = operation_mode)) +
+    geom_col(position = position_dodge(width = 0.65), alpha = 0.85, width = 0.55) +
+    scale_fill_mode() +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.15)),
+                       labels = function(x) sprintf("%.1f d", x)) +
+    labs(
+      title    = "Sensitivity swing by operation mode",
+      subtitle = "Total P50 swing (low to high) per planning variable",
+      x        = "P50 swing, days (high \u2013 low)",
+      y        = NULL,
+      fill     = NULL
+    ) +
+    theme_frac(legend = "bottom")
+}
