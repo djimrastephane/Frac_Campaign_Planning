@@ -2838,7 +2838,8 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
   # --- Inline charts ---------------------------------------------------------
   pctiles <- summary %>%
     group_by(operation_mode) %>%
-    summarise(p50 = quantile(estimated_campaign_days, 0.5, na.rm = TRUE),
+    summarise(p10 = quantile(estimated_campaign_days, 0.1, na.rm = TRUE),
+              p50 = quantile(estimated_campaign_days, 0.5, na.rm = TRUE),
               p90 = quantile(estimated_campaign_days, 0.9, na.rm = TRUE),
               .groups = "drop")
 
@@ -2965,9 +2966,22 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
   grDevices::pdf(file, width = 11.69, height = 8.27, onefile = TRUE)
   on.exit(grDevices::dev.off(), add = TRUE)
 
-  # Page 1: executive dashboard
+  # Helper: coloured status badge (replaces raw table cells for traffic lights)
+  draw_status_badge <- function(status, xc, yc, w = 0.13, h = 0.058) {
+    col <- status_cols[status]
+    col <- if (is.na(col) || length(col) == 0) "grey70" else unname(col)
+    grid::grid.roundrect(
+      x = grid::unit(xc, "npc"), y = grid::unit(yc, "npc"),
+      width = grid::unit(w, "npc"), height = grid::unit(h, "npc"),
+      r = grid::unit(1.8, "mm"),
+      gp = grid::gpar(fill = col, col = NA, alpha = 0.88))
+    grid::grid.text(status, x = xc, y = yc,
+                    gp = grid::gpar(col = "white", fontface = "bold", cex = 0.60))
+  }
+
+  # Page 1: executive dashboard + mini S-curve
   new_page("Frac Campaign Planning Report",
-           "Monte Carlo campaign simulation - executive summary")
+           "Monte Carlo campaign simulation — executive summary")
   kpi_show <- head(kpis, 9)
   accents <- rep(c(teal, navy, amber), length.out = nrow(kpi_show))
   ncol_k <- 3
@@ -2980,51 +2994,126 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
     draw_kpi_card(kpi_show$kpi[i], kpi_show$value[i], x, y, card_w, card_h,
                   accent = accents[i])
   }
-  grid::grid.text(
-    paste("Key interpretation: the best option is selected on P50 campaign duration.",
-          "Readiness is a decision-support indicator and should be read together",
-          "with bottlenecks, risk drivers, and cost exposure."),
-    x = 0.05, y = 0.18, just = c("left", "top"),
-    gp = grid::gpar(cex = 0.78, col = "grey30"))
-  grid::grid.text(
-    "Prepared with the uploaded historical well data, risk assumptions, and selected resource inputs.",
-    x = 0.05, y = 0.12, just = c("left", "top"),
-    gp = grid::gpar(cex = 0.7, col = "grey45"))
+  scurve_mini <- scurve_p +
+    ggplot2::theme(legend.position = "right",
+                   plot.title    = ggplot2::element_text(size = 9),
+                   plot.subtitle = ggplot2::element_blank())
+  draw_plot_in(scurve_mini, x = 0.5, y = 0.20, w = 0.92, h = 0.28)
 
-  # Page 2: campaign duration
-  new_page("Campaign Duration", "Distribution of simulated outcomes")
-  draw_plot_in(scurve_p, x = 0.5, y = 0.58, w = 0.9, h = 0.58)
-  draw_table_in(sim_report, x = 0.5, y = 0.16, w = 0.9, h = 0.2)
+  # Page 2: campaign duration (full chart + styled P10/P50/P90 summary row)
+  new_page("Campaign Duration", "Cumulative probability of campaign completion")
+  draw_plot_in(scurve_p, x = 0.5, y = 0.535, w = 0.92, h = 0.77)
+  modes_ord <- pctiles$operation_mode
+  n_modes   <- length(modes_ord)
+  card_xs   <- if (n_modes == 1) 0.5 else seq(0.27, 0.73, length.out = n_modes)
+  for (mi in seq_along(modes_ord)) {
+    m   <- modes_ord[mi]
+    row <- pctiles[pctiles$operation_mode == m, ]
+    xc  <- card_xs[mi]
+    grid::grid.roundrect(
+      x = grid::unit(xc, "npc"), y = grid::unit(0.082, "npc"),
+      width = grid::unit(0.42, "npc"), height = grid::unit(0.068, "npc"),
+      r = grid::unit(2, "mm"), gp = grid::gpar(fill = panel_grey, col = "#DDE3E9"))
+    grid::grid.text(
+      sprintf("%s  |  P10: %.0f d   P50: %.0f d   P90: %.0f d",
+              m, row$p10, row$p50, row$p90),
+      x = xc, y = 0.082,
+      gp = grid::gpar(cex = 0.76, col = navy, fontface = "bold"))
+  }
 
-  # Page 3: readiness and traffic lights
+  # Page 3: readiness and traffic lights (visual badges replace raw tables)
   new_page("Readiness & Traffic Lights")
-  draw_plot_in(readiness_p, x = 0.27, y = 0.58, w = 0.44, h = 0.58)
-  draw_table_in(traffic_report, x = 0.74, y = 0.58, w = 0.44, h = 0.55)
-  draw_table_in(readiness_report, x = 0.5, y = 0.16, w = 0.92, h = 0.2)
+  draw_plot_in(readiness_p, x = 0.26, y = 0.53, w = 0.44, h = 0.78)
+  tl_modes <- unique(traffic_report$Mode)
+  tl_areas <- unique(traffic_report$Area)
+  n_tl     <- length(tl_modes)
+  tl_xs    <- if (n_tl == 1) 0.77 else seq(0.68, 0.90, length.out = n_tl)
+  grid::grid.text("Traffic lights", x = 0.76, y = 0.895,
+                  just = c("center", "center"),
+                  gp = grid::gpar(col = navy, fontface = "bold", cex = 0.90))
+  for (ci in seq_along(tl_modes)) {
+    grid::grid.text(tl_modes[ci], x = tl_xs[ci], y = 0.853,
+                    gp = grid::gpar(cex = 0.68, col = "grey30", fontface = "bold"))
+  }
+  for (ri in seq_along(tl_areas)) {
+    yb <- 0.808 - (ri - 1) * 0.100
+    grid::grid.text(tl_areas[ri], x = 0.525, y = yb, just = c("left", "center"),
+                    gp = grid::gpar(cex = 0.68, col = "grey30"))
+    for (ci in seq_along(tl_modes)) {
+      st <- traffic_report$Status[traffic_report$Mode == tl_modes[ci] &
+                                    traffic_report$Area == tl_areas[ri]]
+      if (length(st) == 0) st <- "N/A"
+      draw_status_badge(st[1], xc = tl_xs[ci], yc = yb, w = 0.14, h = 0.060)
+    }
+  }
+  grid::grid.text("Readiness breakdown", x = 0.76, y = 0.380,
+                  just = c("center", "center"),
+                  gp = grid::gpar(col = navy, fontface = "bold", cex = 0.90))
+  for (ri in seq_len(nrow(readiness))) {
+    row_r <- readiness[ri, ]
+    yrd   <- 0.335 - (ri - 1) * 0.090
+    grid::grid.roundrect(
+      x = grid::unit(0.76, "npc"), y = grid::unit(yrd, "npc"),
+      width = grid::unit(0.44, "npc"), height = grid::unit(0.072, "npc"),
+      r = grid::unit(2, "mm"), gp = grid::gpar(fill = panel_grey, col = "#DDE3E9"))
+    grid::grid.text(
+      sprintf("%s — %s", row_r$operation_mode,
+              paste0(round(row_r$readiness_score, 0), "/100")),
+      x = 0.76, y = yrd + 0.013,
+      gp = grid::gpar(cex = 0.72, col = navy, fontface = "bold"))
+    grid::grid.text(
+      sprintf("Sched %.0f  /  Resource %.0f  /  Risk %.0f  /  Wireline %.0f",
+              row_r$schedule_score, row_r$resource_score,
+              row_r$risk_score, row_r$wireline_score),
+      x = 0.76, y = yrd - 0.016,
+      gp = grid::gpar(cex = 0.64, col = "grey35"))
+  }
 
-  # Page 4: resource deployment timeline
+  # Page 4: resource deployment timeline (full chart)
   new_page("Resource Deployment Timeline", "Indicative sequencing of campaign resources")
-  draw_plot_in(gantt_p, x = 0.5, y = 0.48, w = 0.92, h = 0.8)
+  draw_plot_in(gantt_p, x = 0.5, y = 0.48, w = 0.92, h = 0.80)
 
-  # Page 5: bottlenecks and recommended actions
+  # Page 5: bottlenecks and recommendations (chart + styled action bullets)
   new_page("Bottlenecks & Recommended Actions")
-  draw_plot_in(bottleneck_p, x = 0.5, y = 0.63, w = 0.9, h = 0.5)
-  draw_table_in(recommendation_report, x = 0.5, y = 0.2, w = 0.94, h = 0.3)
+  draw_plot_in(bottleneck_p, x = 0.5, y = 0.595, w = 0.92, h = 0.66)
+  grid::grid.text("Recommended actions", x = 0.04, y = 0.238,
+                  just = c("left", "center"),
+                  gp = grid::gpar(col = navy, fontface = "bold", cex = 0.88))
+  rec_lines <- recommendations %>%
+    arrange(operation_mode, desc(estimated_campaign_saving_days)) %>%
+    mutate(ln = sprintf("[%s]  %s: %s  —  est. %.1f d saving, P90 util %.0f%%",
+                        operation_mode, resource, recommended_action,
+                        estimated_campaign_saving_days, 100 * p90_utilization))
+  bullet_y <- 0.200
+  for (ln in head(rec_lines$ln, 6)) {
+    for (w_ln in strwrap(paste0("•  ", ln), width = 145)) {
+      if (bullet_y < 0.065) break
+      grid::grid.text(w_ln, x = 0.05, y = bullet_y, just = c("left", "top"),
+                      gp = grid::gpar(cex = 0.72, col = "grey20"))
+      bullet_y <- bullet_y - 0.034
+    }
+  }
 
-  # Page 6: cost impact
-  new_page("Cost Impact", "Resource deployment and idle cost estimates")
-  draw_plot_in(cost_p, x = 0.5, y = 0.6, w = 0.9, h = 0.55)
-  draw_table_in(head(cost_report, 12), x = 0.5, y = 0.17, w = 0.92, h = 0.26)
+  # Page 6: cost impact (full chart + total cost summary)
+  new_page("Cost Impact", "Estimated resource deployment and idle cost")
+  draw_plot_in(cost_p, x = 0.5, y = 0.535, w = 0.92, h = 0.80)
+  total_cost <- sum(cost_impact$estimated_resource_cost, na.rm = TRUE)
+  grid::grid.roundrect(
+    x = grid::unit(0.5, "npc"), y = grid::unit(0.082, "npc"),
+    width = grid::unit(0.52, "npc"), height = grid::unit(0.065, "npc"),
+    r = grid::unit(2, "mm"), gp = grid::gpar(fill = panel_grey, col = "#DDE3E9"))
+  grid::grid.text(
+    sprintf("Total estimated cost (all modes combined): %s", fmt_money(total_cost)),
+    x = 0.5, y = 0.082,
+    gp = grid::gpar(cex = 0.80, col = navy, fontface = "bold"))
 
-  # Page 7: delay contributors
+  # Page 7: delay contributors (full chart)
   new_page("Schedule Risk Drivers", "Top delay contributors across simulations")
-  draw_plot_in(delay_p, x = 0.5, y = 0.6, w = 0.9, h = 0.55)
-  draw_table_in(head(delay_report, 10), x = 0.5, y = 0.17, w = 0.94, h = 0.26)
+  draw_plot_in(delay_p, x = 0.5, y = 0.535, w = 0.92, h = 0.80)
 
-  # Page 7b: risk event tornado, split by operation mode
+  # Page 7b: risk event tornado (full chart)
   new_page("Risk Event Tornado", "Expected schedule impact per campaign, by operation mode")
-  draw_plot_in(tornado_p, x = 0.5, y = 0.6, w = 0.9, h = 0.55)
-  draw_table_in(tornado_report, x = 0.5, y = 0.17, w = 0.94, h = 0.26)
+  draw_plot_in(tornado_p, x = 0.5, y = 0.535, w = 0.92, h = 0.80)
 
   # Page 8: notes
   new_page("Notes & Limitations")
