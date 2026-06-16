@@ -370,12 +370,20 @@ ui <- page_sidebar(
       card(
         card_header("Sensitivity analysis — what drives campaign duration?"),
         card_body(
-          p(class = "text-muted",
-            "Identifies the planning variables that contribute most to campaign duration uncertainty. ",
-            "Runs one-at-a-time (OAT) perturbation sweeps: timing and operations scalars are nudged ",
-            "±20%, risk event probabilities are nudged ±50%, and resource counts are swept ±1 unit. ",
-            "Each perturbed configuration is re-simulated at reduced iterations (200) to estimate the ",
-            "P50 swing. Runs in parallel; typically takes 30–60 seconds depending on core count."),
+          tags$p("Sensitivity analysis identifies which planning assumptions most affect campaign duration."),
+          tags$p(class = "mb-1", "The tool runs one-at-a-time perturbation tests:"),
+          tags$ul(class = "mb-2",
+            tags$li(tags$b("±20% "), "Timing and operational duration assumptions",
+              tags$span(class = "text-muted", " — moderate operational efficiency variation.")),
+            tags$li(tags$b("±50% "), "Risk-event probabilities",
+              tags$span(class = "text-muted", " — reflects the higher uncertainty of low-frequency operational events.")),
+            tags$li(tags$b("±1 unit "), "Resource counts",
+              tags$span(class = "text-muted", " — reflects real mobilisation decisions; crews and equipment are added in whole units."))
+          ),
+          tags$p(class = "text-muted small mb-2",
+            "These ranges are planning-level stress tests, not calibrated confidence intervals. ",
+            "Each perturbed case is re-simulated using 200 iterations for speed. ",
+            "Results are intended for screening and ranking drivers — verify any recommended action using the full simulation count."),
           layout_columns(
             col_widths = c(4, 8),
             actionButton("run_sensitivity", "Run sensitivity analysis",
