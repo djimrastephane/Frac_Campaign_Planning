@@ -1091,12 +1091,7 @@ plot_constraint_cascade <- function(cascade) {
     scale_fill_identity() +
     scale_y_continuous(expand = expansion(mult = c(0, 0.15)),
                        labels = scales::label_comma()) +
-    labs(
-      title = "Constraint cascade: P50 after each fix",
-      subtitle = "Error bars = P10-P90 range. Labels on bars: days saved and ROI (days per $M invested).",
-      caption = "Green = recommended action. Amber = consider. Each step resolves the binding constraint from the previous step.",
-      x = NULL, y = "P50 campaign duration, days"
-    ) +
+    labs(x = NULL, y = "P50 campaign duration, days") +
     theme_frac() +
     theme(axis.text.x = element_text(size = 9, lineheight = 1.15))
 }
@@ -1130,9 +1125,7 @@ plot_cascade_utilization <- function(cascade) {
                          breaks = c(0, 25, 50, 75, 100),
                          labels = c("0%", "25%", "50%", "75%", "100%")) +
     coord_flip() +
-    labs(title = "Binding constraint at each step",
-         subtitle = "Colour = P90 utilization of the binding resource after each fix",
-         x = NULL, y = NULL, fill = "P90 utilization") +
+    labs(x = NULL, y = NULL, fill = "P90 util.") +
     theme_frac() +
     theme(axis.text.x = element_blank(),
           axis.ticks.x = element_blank(),
@@ -1170,9 +1163,6 @@ plot_pareto_frontier <- function(optim_results) {
     scale_size_manual(values  = c(`TRUE` = 3.4, `FALSE` = 2.2), guide = "none") +
     scale_y_continuous(labels = scales::label_dollar(suffix = "M")) +
     labs(
-      title    = "Scenario trade-off: duration vs total mobilisation cost",
-      subtitle = "Triangles = Pareto-efficient. Screened at reduced iterations; top 5 refined. Hover for details.",
-      caption  = "Total cost = units \u00d7 day rate \u00d7 P50. Re-run the full simulation after applying settings for the definitive P50.",
       x = "P50 campaign duration, days",
       y = "Total mobilisation cost",
       colour = NULL
