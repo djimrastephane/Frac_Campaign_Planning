@@ -60,17 +60,21 @@ The model tracks five resources independently. Each has its own unit count, work
 - Executive KPI dashboard with readiness score and its drivers
 - **Decision support tab** — a single consolidated view for go/no-go decisions:
   - **Management summary**: an auto-generated narrative paragraph stitching together the recommendation, the current bottleneck, and the risk/uncertainty outlook into one management-readable statement
-  - **Recommendation panel**: an evidence-based "why" panel for the top resource addition (current utilization, bottleneck status, days saved, incremental cost, ROI), with a **"Verify by re-simulation"** button that re-runs the simulation to confirm the instant analytic estimate
+  - **Recommendation panel**: an evidence-based "why" panel for the top resource addition (current utilization, bottleneck status, days saved, incremental cost, ROI), with a **"Verify by re-simulation"** button that re-runs the simulation to confirm the instant analytic estimate, and a **confidence badge** (High / Moderate / Low / Inconclusive) that folds statistical win-rate together with OAT robustness stability
   - **Risk prediction table**: per-risk probability of occurrence, expected delay, P90 delay, and likelihood/impact rating, optionally evaluated against a target completion date
   - **Uncertainty table**: P10/P50/P90 by mode plus probability of finishing by a target date, probability of staying within a budget ceiling, probability of resource overload, and P50 cost
   - **Constraint-relief cascade**: ranked list of which resource to relieve next and the cumulative days each successive fix recovers
+  - **Recommendation robustness check**: one-at-a-time (OAT) ±15% sweep over every planning assumption; reports whether the recommendation flips under any perturbation; combined best-case / stress-case bundle shows the full planning envelope
+  - **Assumption sensitivity tornado chart**: diverging horizontal bar chart showing the P50 schedule impact of each assumption swing, ranked by magnitude, coloured by direction (saves days / adds days)
+  - **Scenario library**: save any run configuration with a label, compare saved scenarios side-by-side in a summary table
 - Investment ranking: net benefit and ROI (days per $1M) of each proposed resource addition
 - **Constraint cascade analyser** (Optimiser tab): greedy sequential bottleneck resolution — answers what limits you now, what limits you after you fix it, and where each additional dollar generates the most schedule return, with a waterfall chart of P50 duration after each fix
 - **Scenario optimiser**: grid search over resource configurations, common-random-number screening, Pareto frontier of duration vs total mobilisation cost, one-click apply of the recommended scenario
 - Optional **target duration** and **budget ceiling** sidebar inputs feed the risk prediction and uncertainty tables above
 
 ## Audit and Reporting
-- Executive PDF report (landscape, KPI dashboard, charts, styled tables, deployment timeline), with a prepended **Executive Decision Summary** page (management narrative, recommendation, bottleneck evidence, risk/uncertainty outlook)
+- Executive PDF report (landscape, KPI dashboard, charts, styled tables, deployment timeline), with a prepended **Executive Decision Summary** page (management narrative, recommendation with combined confidence level, bottleneck evidence, risk/uncertainty outlook)
+- Conditional **Robustness & Scenario** page appended to the PDF when a robustness check or scenario comparison has been run: includes the OAT stability table, assumption sensitivity tornado chart, and (if scenarios were saved) a scenario comparison table
 - Well-level audit trail, risk event log with consequence columns, assumptions-used table
 - Downloadable audit package (zip) with 18+ CSV exports
 - Input fidelity check: simulated vs historical distributions
@@ -82,7 +86,7 @@ The model tracks five resources independently. Each has its own unit count, work
 ### Overview — KPI dashboard
 ![Overview tab](docs/images/screenshots/01_overview.png)
 
-### Decision support — narrative, recommendation, risk and uncertainty
+### Decision support — narrative, recommendation, robustness and scenario library
 ![Decision support tab](docs/images/screenshots/02_decision_support.png)
 
 ### Risks — tornado and consequence propagation
