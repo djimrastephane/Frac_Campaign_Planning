@@ -38,6 +38,7 @@ source(file.path(project_root, "R", "robustness.R"))
 source(file.path(project_root, "R", "sensitivity_analysis.R"))
 source(file.path(project_root, "R", "whatif_builder.R"))
 source(file.path(project_root, "R", "bayesian_updater.R"))
+source(file.path(project_root, "R", "learning_engine.R"))
 source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
@@ -261,6 +262,59 @@ ui <- page_sidebar(
         col_widths = c(6, 6),
         table_card("Traffic lights", dt_wrap("traffic_light_table", "200px")),
         table_card("Executive summary", dt_wrap("executive_summary_table", "380px"))
+      )
+    ),
+
+    nav_panel(
+      "Historical Learning",
+      card(
+        card_header("Automatic distribution fitting from historical well data"),
+        card_body(
+          uiOutput("learning_status")
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Fitted distributions — density overlay"),
+          card_body(plotOutput("learning_density_plot", height = "420px")),
+          card_footer(tags$small(class = "text-muted",
+            "Grey bars = empirical data. Solid line = best fit (lowest AIC). ",
+            "Dashed lines = other candidate distributions."))
+        )
+      ),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(
+          full_screen = TRUE,
+          card_header("Q-Q diagnostic — observed vs theoretical quantiles"),
+          card_body(plotOutput("learning_qq_plot", height = "380px")),
+          card_footer(tags$small(class = "text-muted",
+            "Points on the dashed line = perfect fit. Curvature = distribution mismatch."))
+        ),
+        card(
+          full_screen = TRUE,
+          card_header("Distribution fitting results — AIC / BIC / KS ranking"),
+          card_body(DT::DTOutput("learning_fit_table"))
+        )
+      ),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(
+          full_screen = TRUE,
+          card_header("Descriptive statistics"),
+          card_body(DT::DTOutput("learning_desc_table"))
+        ),
+        card(
+          full_screen = TRUE,
+          card_header("Suggested planning assumptions (auto-generated)"),
+          card_body(DT::DTOutput("learning_suggested_table")),
+          card_footer(tags$small(class = "text-muted",
+            "Min / Mode / Max derived from P5 / mode / P95 of the best-fit distribution. ",
+            "Use these to populate the min_days / most_likely_days / max_days columns ",
+            "in master_risks_assumptions.csv for stage-duration rows."))
+        )
       )
     ),
 
@@ -1252,6 +1306,96 @@ server <- function(input, output, session) {
         color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00"))) %>%
       DT::formatStyle("Δ cost vs base",
         color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00")))
+  })
+
+  # ---- Historical Learning Engine (Issue #6) --------------------------------
+  # Runs automatically whenever historical wells data changes; no button needed.
+  learning_r <- reactive({
+    dat <- input_data()
+    req(isTRUE(dat$ok))
+    tryCatch(
+      learn_from_historical(dat$historical),
+      error = function(e) { warning("Learning engine: ", conditionMessage(e)); NULL }
+    )
+  })
+
+  output$learning_status <- renderUI({
+    lr <- tryCatch(learning_r(), error = function(e) NULL)
+    dat <- tryCatch(input_data(), error = function(e) NULL)
+    if (is.null(lr)) {
+      return(tags$p(class = "text-muted",
+        "Upload historical_wells.csv to automatically fit duration distributions. ",
+        "When no file is uploaded the simulator uses synthetic baseline data ",
+        "(flagged in the sidebar) — distribution fitting still runs on that data."))
+    }
+    n_wells <- if (!is.null(dat) && isTRUE(dat$ok)) nrow(dat$historical) else 0
+    using_synthetic <- isTRUE(dat$using_synthetic)
+
+    tags$div(
+      if (using_synthetic)
+        tags$p(class = "text-warning fw-bold",
+          sprintf("Using %d synthetic wells — upload historical_wells.csv for calibrated fits.", n_wells))
+      else
+        tags$p(class = "text-success fw-bold",
+          sprintf("Fitted on %d historical wells.", n_wells)),
+      tags$ul(class = "mb-0 small",
+        lapply(lr, function(r) {
+          if (is.null(r$best_fit)) return(tags$li(sprintf("%s: %s", r$label, r$note)))
+          tags$li(sprintf(
+            "%s: best fit = %s (AIC %.1f). Suggested triangular: min=%.3f d, mode=%.3f d, max=%.3f d.",
+            r$label, r$best_fit$family, r$best_fit$aic,
+            r$suggested_min, r$suggested_mode, r$suggested_max))
+        })
+      )
+    )
+  })
+
+  output$learning_density_plot <- renderPlot({
+    plot_learning_density(tryCatch(learning_r(), error = function(e) NULL))
+  }, res = 96)
+
+  output$learning_qq_plot <- renderPlot({
+    plot_learning_qq(tryCatch(learning_r(), error = function(e) NULL))
+  }, res = 96)
+
+  output$learning_fit_table <- DT::renderDT({
+    lr <- tryCatch(learning_r(), error = function(e) NULL)
+    if (is.null(lr)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- bind_rows(lapply(lr, function(r) {
+      if (is.null(r$fit_table)) return(NULL)
+      r$fit_table %>% mutate(Parameter = r$label) %>%
+        select(Parameter, everything())
+    }))
+    DT::datatable(df %>% select(-Best), rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE, pageLength = 8)) %>%
+      DT::formatStyle("Rank",
+        target = "row",
+        backgroundColor = DT::styleEqual(1, "#d4edda")) %>%
+      DT::formatStyle("AIC",
+        background = DT::styleColorBar(range(df$AIC, na.rm = TRUE), "#cce5ff"),
+        backgroundSize = "90% 55%", backgroundRepeat = "no-repeat",
+        backgroundPosition = "center")
+  })
+
+  output$learning_desc_table <- DT::renderDT({
+    lr <- tryCatch(learning_r(), error = function(e) NULL)
+    if (is.null(lr)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- bind_rows(lapply(lr, function(r) {
+      if (is.null(r$desc)) return(NULL)
+      r$desc %>% mutate(Parameter = r$label) %>% select(Parameter, everything()) %>%
+        mutate(across(where(is.numeric), ~ round(.x, 4)))
+    }))
+    DT::datatable(df, rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE))
+  })
+
+  output$learning_suggested_table <- DT::renderDT({
+    lr <- tryCatch(learning_r(), error = function(e) NULL)
+    if (is.null(lr)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- suggested_assumptions_table(lr)
+    DT::datatable(df, rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE)) %>%
+      DT::formatStyle("Best fit", fontWeight = "bold")
   })
 
   # ---- Bayesian Update (Issue #7) -------------------------------------------

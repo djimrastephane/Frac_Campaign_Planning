@@ -83,6 +83,104 @@ plot_campaign_distribution <- function(results) {
   }
 }
 
+# ---- Historical Learning Engine (Issue #6) ----------------------------------
+
+# Fitted distribution colours (consistent across density and Q-Q plots)
+.LE_DIST_COLOURS <- c(
+  Normal    = "#0072B2",
+  Lognormal = "#E69F00",
+  Gamma     = "#009E73",
+  Weibull   = "#CC79A7"
+)
+
+# Density overlay: empirical histogram + all fitted curves, faceted by parameter.
+# `learning` is the list returned by learn_from_historical().
+plot_learning_density <- function(learning) {
+  if (is.null(learning)) {
+    return(ggplot() +
+             labs(title = "Upload historical_wells.csv to see distribution fits") +
+             theme_frac())
+  }
+
+  hist_df  <- bind_rows(lapply(learning, function(r) {
+    if (is.null(r$raw_values) || length(r$raw_values) < 5) return(NULL)
+    tibble(parameter = r$label, x = r$raw_values)
+  }))
+  if (nrow(hist_df) == 0) return(ggplot() + labs(title = "Insufficient data") + theme_frac())
+
+  curve_df <- bind_rows(lapply(learning, function(r) {
+    if (is.null(r$fits)) return(NULL)
+    x_range <- range(r$raw_values)
+    xs      <- seq(max(0, x_range[1] * 0.8), x_range[2] * 1.2, length.out = 300)
+    bind_rows(lapply(r$fits, function(f) {
+      if (!f$converged) return(NULL)
+      tibble(parameter = r$label, x = xs,
+             density = .dfun(xs, f$family, f$params),
+             Distribution = f$family,
+             is_best = f$family == r$best_fit$family)
+    }))
+  }))
+
+  ggplot() +
+    geom_histogram(data = hist_df,
+                   aes(x = x, y = after_stat(density)),
+                   bins = 20, fill = "grey75", colour = "white", alpha = 0.6) +
+    geom_line(data = curve_df %>% filter(!is_best),
+              aes(x = x, y = density, colour = Distribution),
+              linewidth = 0.6, linetype = "dashed") +
+    geom_line(data = curve_df %>% filter(is_best),
+              aes(x = x, y = density, colour = Distribution),
+              linewidth = 1.4) +
+    scale_colour_manual(values = .LE_DIST_COLOURS, name = "Distribution") +
+    facet_wrap(~ parameter, scales = "free", ncol = 2) +
+    labs(
+      title    = "Duration distribution fitting — empirical vs candidates",
+      subtitle = "Solid line = best fit (lowest AIC)  |  Dashed = other candidates",
+      x = "Duration (days)",
+      y = "Density"
+    ) +
+    theme_frac(legend = "bottom")
+}
+
+# Q-Q plot: sample quantiles vs theoretical quantiles from best-fit distribution.
+plot_learning_qq <- function(learning) {
+  if (is.null(learning)) {
+    return(ggplot() + labs(title = "No learning results") + theme_frac())
+  }
+
+  qq_df <- bind_rows(lapply(learning, function(r) {
+    if (is.null(r$best_fit) || !r$best_fit$converged) return(NULL)
+    x  <- sort(r$raw_values)
+    n  <- length(x)
+    p  <- (seq_len(n) - 0.375) / (n + 0.25)  # Blom plotting positions
+    th <- .qfun(p, r$best_fit$family, r$best_fit$params)
+    tibble(parameter = sprintf("%s\n(Best fit: %s)", r$label, r$best_fit$family),
+           observed  = x, theoretical = th, p = p)
+  }))
+
+  if (nrow(qq_df) == 0) return(ggplot() + labs(title = "No converged fits") + theme_frac())
+
+  ref_df <- qq_df %>%
+    group_by(parameter) %>%
+    summarise(lo = min(c(observed, theoretical), na.rm = TRUE),
+              hi = max(c(observed, theoretical), na.rm = TRUE), .groups = "drop")
+
+  ggplot(qq_df, aes(x = theoretical, y = observed)) +
+    geom_segment(data = ref_df, aes(x = lo, xend = hi, y = lo, yend = hi),
+                 colour = "grey50", linewidth = 0.6, linetype = "dashed") +
+    geom_point(aes(colour = p), size = 2.2, alpha = 0.85) +
+    scale_colour_gradient2(low = "#0072B2", mid = "#F0E442", high = "#D55E00",
+                           midpoint = 0.5, name = "Quantile", labels = scales::percent_format()) +
+    facet_wrap(~ parameter, scales = "free", ncol = 2) +
+    labs(
+      title    = "Q-Q plot vs best-fit distribution",
+      subtitle = "Points on the dashed line = perfect fit. Systematic curves = distribution mismatch.",
+      x = "Theoretical quantiles (days)",
+      y = "Observed quantiles (days)"
+    ) +
+    theme_frac(legend = "right")
+}
+
 # ---- Bayesian Duration Updating (Issue #7) ----------------------------------
 
 # Prior vs posterior predictive density overlay, faceted by duration parameter.
