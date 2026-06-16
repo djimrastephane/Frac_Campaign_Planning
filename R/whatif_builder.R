@@ -82,7 +82,8 @@ run_whatif_batch <- function(
     ct_cost_per_day            = 25000,
     milling_cost_per_day       = 18000,
     testing_unit_cost_per_day  = 12000,
-    n_cores = max(1L, parallel::detectCores() - 1L)
+    n_cores = max(1L, parallel::detectCores() - 1L),
+    progress_callback = NULL
 ) {
   stopifnot(is.list(base_args))
   if (is.null(variants)) variants <- list()
@@ -114,12 +115,22 @@ run_whatif_batch <- function(
     })
   )
 
-  raw <- .par_lapply(seq_along(jobs), function(i) {
+  n_wif_jobs <- length(jobs)
+  .wif_job <- function(i) {
     tryCatch(
       .wif_run_one(jobs[[i]]$args, jobs[[i]]$label, rates),
       error = function(e) list(label = jobs[[i]]$label, error = conditionMessage(e))
     )
-  }, n_cores = n_cores)
+  }
+  if (!is.null(progress_callback)) {
+    raw <- lapply(seq_len(n_wif_jobs), function(i) {
+      out <- .wif_job(i)
+      progress_callback(i, n_wif_jobs)
+      out
+    })
+  } else {
+    raw <- .par_lapply(seq_len(n_wif_jobs), .wif_job, n_cores = n_cores)
+  }
 
   # Drop errored runs but surface a warning
   ok <- vapply(raw, function(r) is.null(r$error), logical(1))

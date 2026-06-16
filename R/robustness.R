@@ -68,7 +68,8 @@ assess_recommendation_robustness <- function(
     n_iterations = 150,
     frac_fleet_cost_per_day = 250000, wireline_cost_per_day = 15000,
     ct_cost_per_day = 25000, milling_cost_per_day = 18000, testing_unit_cost_per_day = 12000,
-    n_cores = max(1L, parallel::detectCores() - 1L)
+    n_cores = max(1L, parallel::detectCores() - 1L),
+    progress_callback = NULL
 ) {
   stopifnot(is.list(sim_args))
   perturb_params <- intersect(perturb_params, names(ROBUSTNESS_LABELS))
@@ -97,8 +98,9 @@ assess_recommendation_robustness <- function(
     expand.grid(parameter = perturb_params, direction = c(-1, 1), stringsAsFactors = FALSE),
     tibble(parameter = "ALL", direction = c(-1, 1))
   )
+  n_jobs <- nrow(jobs)
 
-  job_results <- .par_lapply(seq_len(nrow(jobs)), function(i) {
+  .rob_job <- function(i) {
     param <- jobs$parameter[i]
     direction <- jobs$direction[i]
     args <- base_args
@@ -112,7 +114,18 @@ assess_recommendation_robustness <- function(
     out$direction <- direction
     out$value <- if (identical(param, "ALL")) NA_real_ else args[[param]]
     out
-  }, n_cores)
+  }
+
+  if (!is.null(progress_callback)) {
+    progress_callback(1L, n_jobs + 1L)
+    job_results <- lapply(seq_len(n_jobs), function(i) {
+      out <- .rob_job(i)
+      progress_callback(i + 1L, n_jobs + 1L)
+      out
+    })
+  } else {
+    job_results <- .par_lapply(seq_len(n_jobs), .rob_job, n_cores)
+  }
   all_results <- bind_rows(job_results)
   perturbed <- all_results %>% filter(parameter != "ALL")
 

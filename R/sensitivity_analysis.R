@@ -92,7 +92,8 @@ run_sensitivity_analysis <- function(
     scalar_perturb_pct = 0.20,
     risk_perturb_pct   = 0.50,
     n_iterations       = 200L,
-    n_cores            = max(1L, parallel::detectCores() - 1L)
+    n_cores            = max(1L, parallel::detectCores() - 1L),
+    progress_callback  = NULL
 ) {
   stopifnot(is.list(args_by_mode), length(args_by_mode) >= 1)
   modes <- names(args_by_mode)
@@ -122,7 +123,8 @@ run_sensitivity_analysis <- function(
   resource_jobs <- expand.grid(var = names(.SA_RESOURCES),   direction = c(-1L, 1L), mode = modes, type = "resource", stringsAsFactors = FALSE)
   all_jobs      <- bind_rows(scalar_jobs, risk_jobs, resource_jobs)
 
-  job_results <- .par_lapply(seq_len(nrow(all_jobs)), function(i) {
+  n_sa_jobs <- nrow(all_jobs)
+  .sa_job <- function(i) {
     row  <- all_jobs[i, ]
     v    <- row$var
     dir  <- as.integer(row$direction)
@@ -161,7 +163,17 @@ run_sensitivity_analysis <- function(
     out$type          <- type
     out$skipped       <- FALSE
     out
-  }, n_cores = n_cores)
+  }
+
+  if (!is.null(progress_callback)) {
+    job_results <- lapply(seq_len(n_sa_jobs), function(i) {
+      out <- .sa_job(i)
+      progress_callback(i, n_sa_jobs)
+      out
+    })
+  } else {
+    job_results <- .par_lapply(seq_len(n_sa_jobs), .sa_job, n_cores = n_cores)
+  }
 
   detail <- bind_rows(job_results)
 

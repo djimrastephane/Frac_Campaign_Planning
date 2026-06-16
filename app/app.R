@@ -1054,14 +1054,18 @@ server <- function(input, output, session) {
   observeEvent(input$run_robustness, {
     req(sim_results())
     a <- sim_results()$args_by_mode[[focus_mode_r()]]
-    withProgress(message = "Checking recommendation robustness", value = 0.4, {
+    withProgress(message = "Checking recommendation robustness", value = 0, {
       robustness_rv(assess_recommendation_robustness(
         a,
         frac_fleet_cost_per_day = input$frac_fleet_cost,
         wireline_cost_per_day = input$wireline_cost,
         ct_cost_per_day = input$ct_cost,
         milling_cost_per_day = input$milling_cost,
-        testing_unit_cost_per_day = input$testing_unit_cost
+        testing_unit_cost_per_day = input$testing_unit_cost,
+        progress_callback = function(i, n) {
+          setProgress(i / n,
+            detail = if (i <= 1L) "Base case..." else sprintf("Assumption sweep: %d / %d", i - 1L, n - 1L))
+        }
       ))
     })
   })
@@ -1135,10 +1139,13 @@ server <- function(input, output, session) {
 
   observeEvent(input$run_sensitivity, {
     req(sim_results())
-    withProgress(message = "Running sensitivity analysis", value = 0.3, {
+    withProgress(message = "Running sensitivity analysis", value = 0, {
       tryCatch({
         sensitivity_rv(run_sensitivity_analysis(
-          args_by_mode = sim_results()$args_by_mode
+          args_by_mode = sim_results()$args_by_mode,
+          progress_callback = function(i, n) {
+            setProgress(i / n, detail = sprintf("Variable %d / %d swept", i, n))
+          }
         ))
       }, error = function(e) {
         showNotification(paste("Sensitivity error:", conditionMessage(e)), type = "error", duration = 10)
@@ -1266,7 +1273,7 @@ server <- function(input, output, session) {
     )
 
     base_args <- sim_results()$args_by_mode[[focus_mode_r()]]
-    withProgress(message = "Running what-if comparison", value = 0.3, {
+    withProgress(message = "Running what-if comparison", value = 0, {
       tryCatch({
         whatif_rv(run_whatif_batch(
           base_args, variants,
@@ -1274,7 +1281,10 @@ server <- function(input, output, session) {
           wireline_cost_per_day     = input$wireline_cost,
           ct_cost_per_day           = input$ct_cost,
           milling_cost_per_day      = input$milling_cost,
-          testing_unit_cost_per_day = input$testing_unit_cost
+          testing_unit_cost_per_day = input$testing_unit_cost,
+          progress_callback = function(i, n) {
+            setProgress(i / n, detail = sprintf("Scenario %d / %d", i, n))
+          }
         ))
       }, error = function(e) {
         showNotification(paste("What-if error:", conditionMessage(e)), type = "error", duration = 10)
@@ -1673,7 +1683,6 @@ server <- function(input, output, session) {
     )
     res <- tryCatch({
       withProgress(message = "Analysing constraint cascade", value = 0, {
-        setProgress(0.1, detail = "Step 0: current config")
         r <- analyse_constraint_cascade(
           historical_wells = dat$historical,
           assumptions = dat$assumptions,
@@ -1688,9 +1697,13 @@ server <- function(input, output, session) {
           cascade_iterations = 300,
           max_steps = input$cascade_max_steps,
           min_saving_days = 2,
-          seed = as.integer(input$seed)
+          seed = as.integer(input$seed),
+          progress_callback = function(i, n) {
+            frac <- if (n == 0L) 1 else (i + 1L) / (n + 2L)
+            detail <- if (i == 0L) "Current config..." else sprintf("Step %d / %d", i, n)
+            setProgress(frac, detail = detail)
+          }
         )
-        setProgress(1)
         r
       })
     }, error = function(e) {

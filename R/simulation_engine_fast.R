@@ -3453,7 +3453,8 @@ analyse_constraint_cascade <- function(
     cascade_iterations  = 300,   # fast: cascade is diagnostic not final estimate
     max_steps           = 6,
     min_saving_days     = 2,     # stop when marginal saving falls below this
-    seed = 123
+    seed = 123,
+    progress_callback   = NULL
 ) {
   resource_costs <- c(
     "Frac fleet"    = frac_fleet_cost_per_day,
@@ -3507,6 +3508,7 @@ analyse_constraint_cascade <- function(
   }
 
   cfg <- base_config
+  if (!is.null(progress_callback)) progress_callback(0L, max_steps)
   r0  <- run_sim(cfg)
   s0  <- score(r0, cfg)
 
@@ -3590,6 +3592,7 @@ analyse_constraint_cascade <- function(
     prev_p50   <- s_new$p50
     prev_score <- s_new
 
+    if (!is.null(progress_callback)) progress_callback(step, max_steps)
     if (saving < min_saving_days) break
   }
 
