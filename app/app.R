@@ -1768,7 +1768,9 @@ server <- function(input, output, session) {
         target_days = .na_to_null(input$target_days),
         budget = .na_to_null(input$budget),
         recommendation = rec_v2_r(),
-        narrative = decision_narrative_r()$narrative
+        narrative = decision_narrative_r()$narrative,
+        robustness = robustness_rv(),
+        scenario_records = scenario_library_rv()
       )
     }
   )
@@ -1810,7 +1812,9 @@ server <- function(input, output, session) {
                                   target_days = .na_to_null(input$target_days),
                                   budget = .na_to_null(input$budget),
                                   recommendation = rec_v2_r(),
-                                  narrative = decision_narrative_r()$narrative)
+                                  narrative = decision_narrative_r()$narrative,
+                                  robustness = robustness_rv(),
+                                  scenario_records = scenario_library_rv())
 
       files_to_zip <- list.files(tmpdir, full.names = TRUE)
       if (requireNamespace("zip", quietly = TRUE)) {
