@@ -24,6 +24,19 @@ validate_historical_wells <- function(df) {
   if (n_pos_frac == 0) stop("Historical wells file has no positive FracDaysPerStage values.")
   if (n_pos_mill == 0) stop("Historical wells file has no positive MillingDaysPerPlug values.")
 
+  # Soft warnings — attached as an attribute so callers can surface them without
+  # changing the return type.
+  w <- character(0)
+  n_bad_frac <- nrow(df) - n_pos_frac
+  n_bad_mill <- nrow(df) - n_pos_mill
+  if (n_bad_frac > 0)
+    w <- c(w, sprintf("%d well(s) missing/zero FracDaysPerStage — excluded from bootstrap.", n_bad_frac))
+  if (n_bad_mill > 0)
+    w <- c(w, sprintf("%d well(s) missing/zero MillingDaysPerPlug — excluded from bootstrap.", n_bad_mill))
+  if (nrow(df) < 10)
+    w <- c(w, sprintf("Only %d wells — recommend 20+ for reliable distribution fitting.", nrow(df)))
+  attr(df, "input_warnings") <- w
+
   df
 }
 
@@ -73,6 +86,17 @@ validate_assumptions <- function(df) {
       paste(utils::head(detail, 10), collapse = "\n")
     )
   }
+
+  # Soft warnings
+  w <- character(0)
+  high_p <- risk_rows %>% dplyr::filter(!is.na(probability) & probability > 0.5)
+  if (nrow(high_p) > 0)
+    w <- c(w, sprintf("%d risk row(s) have probability > 50%% — check if intentional: %s.",
+                      nrow(high_p), paste(utils::head(high_p$variable, 3), collapse = ", ")))
+  no_scope <- risk_rows %>% dplyr::filter(is.na(scope) | !trimws(tolower(scope)) %in% c("stage", "well", "campaign"))
+  if (nrow(no_scope) > 0)
+    w <- c(w, sprintf("%d risk row(s) missing or invalid scope (must be stage / well / campaign).", nrow(no_scope)))
+  attr(df, "input_warnings") <- w
 
   df
 }

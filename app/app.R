@@ -851,8 +851,13 @@ server <- function(input, output, session) {
       }
       assumptions <- load_master_assumptions(input$assumption_file$datapath) %>%
         validate_assumptions()
+      input_warnings <- c(
+        attr(historical, "input_warnings") %||% character(0),
+        attr(assumptions, "input_warnings") %||% character(0)
+      )
       list(ok = TRUE, historical = historical, assumptions = assumptions,
-           error = NULL, using_synthetic = using_synthetic)
+           error = NULL, using_synthetic = using_synthetic,
+           warnings = input_warnings)
     }, error = function(e) {
       list(ok = FALSE, historical = NULL, assumptions = NULL,
            error = conditionMessage(e), using_synthetic = FALSE)
@@ -866,23 +871,34 @@ server <- function(input, output, session) {
     }
     dat <- input_data()
     if (!isTRUE(dat$ok)) {
-      return(tags$small(class = "text-danger fw-bold", paste("Input error:", dat$error)))
+      return(tags$div(
+        tags$small(class = "text-danger fw-bold", "✘ Input error"),
+        tags$p(class = "small text-danger mt-1 mb-0", dat$error)
+      ))
     }
-    if (isTRUE(dat$using_synthetic)) {
-      tagList(
-        tags$small(class = "text-warning fw-bold",
-          "⚠ Using synthetic baseline data (no historical_wells.csv uploaded)."),
-        tags$br(),
-        tags$small(class = "text-muted",
-          sprintf("%d synthetic wells | %d assumption rows. ",
-                  nrow(dat$historical), nrow(dat$assumptions)),
-          "Upload historical_wells.csv for calibrated estimates.")
-      )
+    warns <- dat$warnings %||% character(0)
+    hist_line <- if (isTRUE(dat$using_synthetic)) {
+      tags$div(class = "small text-warning",
+        "⚠ historical_wells.csv: using 30 synthetic wells (upload your own for calibrated fits)")
     } else {
-      tags$small(class = "text-success fw-bold",
-        sprintf("Inputs loaded: %d historical wells, %d assumption rows. Ready to run.",
-                nrow(dat$historical), nrow(dat$assumptions)))
+      tags$div(class = "small text-success",
+        sprintf("✓ historical_wells.csv: %d wells", nrow(dat$historical)))
     }
+    assump_line <- tags$div(class = "small text-success",
+      sprintf("✓ master_risks_assumptions.csv: %d rows (%d risks)",
+              nrow(dat$assumptions),
+              sum(tolower(trimws(dat$assumptions$type)) == "risk", na.rm = TRUE)))
+    warn_block <- if (length(warns) > 0) {
+      tags$ul(class = "small text-warning mt-1 mb-0 ps-3",
+        lapply(warns, function(w) tags$li(w)))
+    }
+    tags$div(class = "mt-1",
+      hist_line, assump_line, warn_block,
+      if (length(warns) == 0)
+        tags$small(class = "text-success fw-bold mt-1 d-block", "Ready to run.")
+      else
+        tags$small(class = "text-warning fw-bold mt-1 d-block", "Ready — review warnings above.")
+    )
   })
 
   sim_results <- eventReactive(input$run, {
