@@ -1,51 +1,57 @@
 WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracDays,CementEvalDays,MillingDays,FracDaysPerStage,MillingDaysPerPlug
 #
-# HISTORICAL WELLS TEMPLATE
-# Frac Campaign Planning Simulator
+# ════════════════════════════════════════════════════════════════════
+#  HISTORICAL WELLS  —  WHAT TO DO
+# ════════════════════════════════════════════════════════════════════
+#  1. DELETE the example rows at the bottom of this file.
+#  2. ADD one row per completed well from your previous campaigns.
+#  3. ALL columns are required. Minimum 5 wells.
 #
-# HOW TO USE THIS FILE
-# --------------------
-# Each row is one COMPLETED well from a previous campaign.
-# The engine resamples FracDaysPerStage and MillingDaysPerPlug as bootstrap
-# distributions -- the more historical wells you supply, the better calibrated
-# the simulation will be.
+#  ONLY TWO COLUMNS DRIVE THE SIMULATION:
+#  ┌──────────────────────┬──────────────────────────────────────────┐
+#  │ FracDaysPerStage     │ = FracDays ÷ StagesCompleted            │
+#  │ MillingDaysPerPlug   │ = MillingDays ÷ PlugsInstalled          │
+#  └──────────────────────┴──────────────────────────────────────────┘
+#  The engine resamples these two columns (bootstrap) to build the
+#  duration distributions. All other columns are metadata for the
+#  audit output — they do not affect simulation results.
 #
-# MINIMUM REQUIREMENT: at least 5 wells with positive FracDaysPerStage and
-# MillingDaysPerPlug values. The engine will reject the file if all values
-# in either column are zero or missing.
+#  COMPUTE THEM CAREFULLY:
+#  FracDaysPerStage  — use stages pumped to design. Exclude screen-outs
+#    if they are already captured as a separate risk event.
+#  MillingDaysPerPlug — use actual milling time / (plugs installed +
+#    contingency plugs). Include contingency plugs in the denominator.
 #
-# COLUMN DEFINITIONS
-# ------------------
-# WellID            : unique well identifier (string, used in audit output)
-# PadID             : pad identifier (string)
-# StagesPlanned     : number of frac stages originally planned
-# StagesCompleted   : number of frac stages actually pumped
-# PlugsInstalled    : number of isolation plugs set (usually = StagesCompleted - 1)
-# ContingencyPlugs  : extra plugs required due to failures / premature sets
-# FracDays          : total pumping days for this well
-# CementEvalDays    : CT/wireline time for cement evaluation (0 if run offline)
-# MillingDays       : total milling days for this well
-# FracDaysPerStage  : FracDays / StagesCompleted (key distribution for sampling)
-# MillingDaysPerPlug: MillingDays / PlugsInstalled (key distribution for sampling)
+# ════════════════════════════════════════════════════════════════════
+#  COLUMN GUIDE
+# ════════════════════════════════════════════════════════════════════
 #
-# CALIBRATION NOTES
-# -----------------
-# FracDaysPerStage: include only stages that were pumped to design.
-#   Exclude screen-outs if they artificially inflate the value and are
-#   already captured separately as a risk event.
-# MillingDaysPerPlug: use actual milling time per plug drilled out.
-#   If you had contingency plugs, include them in the denominator.
+#  METADATA — used in audit output only, not in simulation:
+#    WellID          : any unique identifier (text)
+#    PadID           : pad name or number (text)
+#    StagesPlanned   : stages originally planned
+#    FracDays        : total pumping days for this well
+#    CementEvalDays  : CT/wireline time for cement evaluation (0 if offline)
+#    MillingDays     : total milling days for this well
 #
-# DATA QUALITY CHECKS
-# -------------------
-# The validation step will warn if:
-#   - FracDaysPerStage < 0.1 (likely a calculation error)
-#   - MillingDaysPerPlug > 5.0 (check for outliers)
-#   - StagesCompleted != StagesPlanned (flag for review -- was this a curtailed well?)
+#  USED BY ENGINE — fill in accurately:
+#    StagesCompleted  : stages actually pumped to design
+#    PlugsInstalled   : total isolation plugs set
+#    ContingencyPlugs : extra plugs set due to failures (0 if none)
 #
-# =============================================================================
-# EXAMPLE DATA (replace with your actual historical campaign data)
-# =============================================================================
+#  [KEY] SIMULATION INPUTS — compute from the values above:
+#    FracDaysPerStage   = FracDays / StagesCompleted
+#    MillingDaysPerPlug = MillingDays / PlugsInstalled
+#
+# ════════════════════════════════════════════════════════════════════
+#  VALIDATION WARNINGS the app will raise:
+#    FracDaysPerStage < 0.1        likely a calculation error
+#    MillingDaysPerPlug > 5.0      check for outliers
+#    StagesCompleted != StagesPlanned  flag curtailed wells for review
+# ════════════════════════════════════════════════════════════════════
+#
+#  EXAMPLE DATA — replace with your actual historical campaign data:
+#
 W-001,Pad_A,6,6,5,0,11.6,1.0,3.4,1.93,0.68
 W-002,Pad_A,6,6,5,0,12.0,0.8,3.5,2.00,0.70
 W-003,Pad_A,6,5,4,1,10.3,1.2,3.1,2.06,0.78
