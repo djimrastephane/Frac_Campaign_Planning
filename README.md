@@ -363,40 +363,45 @@ campaign_days = max(frac_path_days, post_frac_completion)
 
 ```
 Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
-          │                       │                          │
-          └──────────┬────────────┘──────────────────────────┘
-                     ▼
-        Input Validation (row-level diagnostics, scope check)
-                     ▼
-        Monte Carlo Simulation Engine
-          │ parameter cache · static risk grid (vectorised)
-          │ scope-aware risk probability (stage/well/campaign)
-          │ consequence propagation (CT/wireline/milling/testing)
-          │ CT cleanout parallel with frac path (conventional)
-          │ cement eval offline rule (wireline unit count driven)
-          │ two-pass CT capacity · discrete post-frac scheduler
-          ▼
-   ┌──────────┬─────────────┬──────────────┐
-   ▼          ▼             ▼              ▼
- Summary   Well Detail   Risk Event    Resource
- (P10/50/90) Audit Trail  Log + Conseq. Utilization
-   └──────────┴─────────────┴──────────────┘
-                     ▼
-   Analytics: readiness · bottlenecks · investment ranking
-              consequence summary · constraint cascade
-              deployment timeline · Pareto optimiser
-              schedule risk heatmap · sensitivity sweep
-              Bayesian updater · learning engine · what-if builder
-                     ▼
-   Decision layer: traceable recommendations (+ verify by
-   re-simulation) · bottleneck explainability · risk
-   prediction · uncertainty (P-values) · management narrative
-                     ▼
-   ┌──────────┬──────────┬─────────────┬──────────────┬──────────┬──────────┐
-   ▼          ▼          ▼             ▼              ▼          ▼          ▼
- Dashboard  Decision   Optimiser    PDF Report     Audit Pkg   Workflow
- (bslib)    support   (Cascade+    (executive +    (zip 18+    Viewer
-            tab        Pareto)     decision page)  CSV)
+         │                        │                           │
+         └────────────────────────┴───────────────────────────┘
+                                  │
+                                  ▼
+          Input Validation (row-level diagnostics, scope check)
+                                  │
+                                  ▼
+          Monte Carlo Simulation Engine
+            │ parameter cache · static risk grid (vectorised)
+            │ scope-aware risk probability (stage/well/campaign)
+            │ consequence propagation (CT/wireline/milling/testing)
+            │ CT cleanout parallel with frac path (conventional)
+            │ cement eval offline rule (wireline unit count driven)
+            │ two-pass CT capacity · discrete post-frac scheduler
+                                  │
+                                  ▼
+    ┌─────────────┬─────────────┬──────────────┬─────────────┐
+    │   Summary   │ Well Detail │  Risk Event  │  Resource   │
+    │ (P10/50/90) │ Audit Trail │ Log + Conseq.│ Utilization │
+    └─────────────┴─────────────┴──────────────┴─────────────┘
+                                  │
+                                  ▼
+    Analytics: readiness · bottlenecks · investment ranking
+               consequence summary · constraint cascade
+               deployment timeline · Pareto optimiser
+               schedule risk heatmap · sensitivity sweep
+               Bayesian updater · learning engine · what-if builder
+                                  │
+                                  ▼
+    Decision layer: traceable recommendations · bottleneck
+                    explainability · risk prediction
+                    uncertainty (P-values) · management narrative
+                                  │
+                                  ▼
+    ┌──────────┬──────────┬──────────┬────────────┬──────────┬──────────┐
+    │Dashboard │ Decision │Optimiser │ PDF Report │Audit Pkg │ Workflow │
+    │ (bslib)  │ Support  │(Cascade+ │(executive+ │(zip 18+  │  Viewer  │
+    │          │   Tab    │ Pareto)  │decision pg)│  CSV)    │          │
+    └──────────┴──────────┴──────────┴────────────┴──────────┴──────────┘
 ```
 
 ---
