@@ -649,6 +649,12 @@ Scenario management, historical campaign backtesting (predicted vs actual), port
 
 ---
 
+# Development Approach
+
+This project was developed using AI-assisted software development tools. Operational logic, engineering assumptions, simulation design, validation methodology, and decision-support workflows were designed and validated by the author based on 17+ years of completion and well intervention experience.
+
+---
+
 # License
 
 MIT License. See the LICENSE file for details.
