@@ -37,6 +37,7 @@ source(file.path(project_root, "R", "recommendations.R"))
 source(file.path(project_root, "R", "robustness.R"))
 source(file.path(project_root, "R", "sensitivity_analysis.R"))
 source(file.path(project_root, "R", "whatif_builder.R"))
+source(file.path(project_root, "R", "bayesian_updater.R"))
 source(file.path(project_root, "R", "scenario_library.R"))
 source(file.path(project_root, "R", "narrative_engine.R"))
 source(file.path(project_root, "R", "report_decision_page.R"))
@@ -107,7 +108,16 @@ ui <- page_sidebar(
         helpText(class = "text-muted small mt-0",
           "If omitted, synthetic baseline data is used (clearly flagged). ",
           "Recommended: 20+ historical wells for calibrated estimates."),
-        fileInput("assumption_file", "master_risks_assumptions.csv", accept = ".csv")
+        fileInput("assumption_file", "master_risks_assumptions.csv", accept = ".csv"),
+        tags$hr(class = "my-2"),
+        tags$small(class = "fw-bold", "Bayesian update (optional)"),
+        fileInput("bayes_new_wells_file", "New campaign wells CSV", accept = ".csv"),
+        helpText(class = "text-muted small mt-0",
+          "Same format as historical_wells.csv. Uploads new completed-well observations; ",
+          "the Bayesian Update tab shows prior vs posterior. Apply merges data into the simulation bootstrap."),
+        fileInput("bayes_risk_obs_file", "Risk observations CSV (optional)", accept = ".csv"),
+        helpText(class = "text-muted small mt-0",
+          "Columns: risk_event, n_trials, n_events. Used for Beta-Binomial risk probability updating.")
       ),
       accordion_panel(
         "Scenario",
@@ -350,6 +360,64 @@ ui <- page_sidebar(
         full_screen = TRUE,
         card_header("Detailed sensitivity table — P50 at low / base / high perturbation"),
         card_body(DT::DTOutput("sensitivity_detail_table"))
+      )
+    ),
+
+    nav_panel(
+      "Bayesian Update",
+      card(
+        card_header("Bayesian duration & risk probability updating"),
+        card_body(
+          uiOutput("bayes_status"),
+          layout_columns(
+            col_widths = c(6, 6),
+            sliderInput("bayes_prior_strength", "Prior strength (equivalent prior sample size)",
+                        min = 5, max = 100, value = 20, step = 5),
+            div(
+              tags$small(class = "text-muted",
+                "Higher = historical assumptions anchor the estimate more strongly against new data. ",
+                "Lower = new observations update faster."),
+              actionButton("bayes_apply", "Apply to simulation",
+                           class = "btn-sm btn-success mt-2", icon = icon("check")),
+              uiOutput("bayes_apply_status")
+            )
+          )
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Duration update — prior vs posterior predictive"),
+          card_body(plotOutput("bayes_duration_plot", height = "400px")),
+          card_footer(tags$small(class = "text-muted",
+            "Prior (blue) = distribution implied by historical wells. ",
+            "Posterior (gold) = updated estimate after observing new campaign data. ",
+            "Dashed lines = P50. The posterior predictive P10/P50/P90 can be applied ",
+            "to sharpen simulation inputs."))
+        )
+      ),
+      layout_columns(
+        col_widths = c(6, 6),
+        card(
+          full_screen = TRUE,
+          card_header("Duration parameter summary"),
+          card_body(DT::DTOutput("bayes_duration_table"))
+        ),
+        card(
+          full_screen = TRUE,
+          card_header("Risk probability update — prior vs posterior"),
+          card_body(plotOutput("bayes_risk_plot", height = "380px")),
+          card_footer(tags$small(class = "text-muted",
+            "Only shown when risk observations CSV is uploaded. ",
+            "Prior (blue) = Beta distribution implied by assumptions CSV probability. ",
+            "Posterior (gold) = Beta updated with observed event counts."))
+        )
+      ),
+      card(
+        full_screen = TRUE,
+        card_header("Risk probability summary"),
+        card_body(DT::DTOutput("bayes_risk_table"))
       )
     ),
 
@@ -769,10 +837,12 @@ server <- function(input, output, session) {
 
     tryCatch({
       withProgress(message = "Running simulation", value = 0, {
+        # Use Bayesian-merged wells if the user has applied an update.
+        historical_for_sim <- bayes_merged_wells_rv() %||% dat$historical
         detailed_runs <- lapply(seq_along(modes), function(mode_index) {
           base_frac <- (mode_index - 1) / length(modes)
           args <- list(
-            historical_wells = dat$historical,
+            historical_wells = historical_for_sim,
             assumptions = dat$assumptions,
             n_wells = as.integer(input$n_wells),
             n_iterations = as.integer(input$n_iter),
@@ -1182,6 +1252,149 @@ server <- function(input, output, session) {
         color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00"))) %>%
       DT::formatStyle("Δ cost vs base",
         color = DT::styleInterval(c(-0.001, 0.001), c("#009E73", "black", "#D55E00")))
+  })
+
+  # ---- Bayesian Update (Issue #7) -------------------------------------------
+
+  # Holds the merged (prior + new) historical wells when the user applies the update.
+  bayes_merged_wells_rv <- reactiveVal(NULL)
+
+  # Reactive: run the Bayesian update whenever new-wells file changes.
+  bayes_result_r <- reactive({
+    req(input$bayes_new_wells_file)
+    dat <- input_data()
+    validate(need(isTRUE(dat$ok), "Fix input files before running Bayesian update."))
+
+    new_wells <- tryCatch(
+      load_historical_wells(input$bayes_new_wells_file$datapath),
+      error = function(e) {
+        showNotification(paste("New wells file error:", conditionMessage(e)),
+                         type = "error", duration = 10)
+        return(NULL)
+      }
+    )
+    req(!is.null(new_wells))
+
+    risk_obs <- if (!is.null(input$bayes_risk_obs_file)) {
+      tryCatch(
+        load_risk_observations(input$bayes_risk_obs_file$datapath),
+        error = function(e) {
+          showNotification(paste("Risk obs file error:", conditionMessage(e)),
+                           type = "warning", duration = 8)
+          NULL
+        }
+      )
+    } else NULL
+
+    run_bayesian_update(
+      historical_wells = dat$historical,
+      new_wells        = new_wells,
+      assumptions      = dat$assumptions,
+      risk_obs         = risk_obs,
+      prior_strength   = input$bayes_prior_strength
+    )
+  })
+
+  output$bayes_status <- renderUI({
+    if (is.null(input$bayes_new_wells_file)) {
+      return(tags$p(class = "text-muted",
+        "Upload a new campaign wells CSV (same format as historical_wells.csv) to run the Bayesian update. ",
+        "Optionally also upload a risk observations CSV."))
+    }
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    if (is.null(br)) return(tags$p(class = "text-danger", "Update failed — check the file format."))
+    dur <- br$duration_update
+    tags$div(
+      tags$p(class = "text-success fw-bold",
+        sprintf("Bayesian update complete: %d prior wells + %d new wells = %d posterior observations.",
+                br$n_prior, br$n_new, br$n_prior + br$n_new)),
+      if (!is.null(dur) && nrow(dur) > 0) {
+        tags$ul(class = "mb-0 small",
+          lapply(seq_len(nrow(dur)), function(i) {
+            r <- dur[i, ]
+            tags$li(sprintf("%s: prior P50 = %.3f d  →  posterior P50 = %.3f d  (shift %+.3f d, 90%% CI [%+.3f, %+.3f])",
+                            r$label, r$prior_p50, r$posterior_p50,
+                            r$delta_mean, r$ci90_lo, r$ci90_hi))
+          })
+        )
+      }
+    )
+  })
+
+  output$bayes_duration_plot <- renderPlot({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    dat <- tryCatch(input_data(), error = function(e) NULL)
+    hw  <- if (!is.null(dat) && isTRUE(dat$ok)) dat$historical else NULL
+    plot_bayesian_duration_update(br, hw)
+  }, res = 96)
+
+  output$bayes_duration_table <- DT::renderDT({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    if (is.null(br) || is.null(br$duration_update))
+      return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- br$duration_update %>%
+      transmute(
+        Parameter         = label,
+        `Prior wells`     = n_prior,
+        `Prior P50 (d)`   = round(prior_p50,      3),
+        `Prior P10–P90`   = sprintf("%.3f – %.3f", prior_p10, prior_p90),
+        `New wells`       = n_new,
+        `New mean (d)`    = round(new_mean,        3),
+        `Post. P50 (d)`   = round(posterior_p50,   3),
+        `Post. P10–P90`   = sprintf("%.3f – %.3f", posterior_p10, posterior_p90),
+        `Shift (d)`       = sprintf("%+.4f", delta_mean),
+        `90% CI for shift` = sprintf("[%+.4f, %+.4f]", ci90_lo, ci90_hi)
+      )
+    DT::datatable(df, rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE)) %>%
+      DT::formatStyle("Shift (d)",
+        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00")))
+  })
+
+  output$bayes_risk_plot <- renderPlot({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    plot_bayesian_risk_update(br$risk_update)
+  }, res = 96)
+
+  output$bayes_risk_table <- DT::renderDT({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    ru <- br$risk_update
+    if (is.null(ru) || nrow(ru) == 0)
+      return(DT::datatable(
+        tibble(Note = "Upload risk observations CSV to see Beta-Binomial risk updates."),
+        rownames = FALSE, options = list(dom = "t")))
+    df <- ru %>%
+      transmute(
+        `Risk event`      = risk_event,
+        `Prior prob.`     = sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
+        `Trials`          = n_trials,
+        `Events`          = n_events,
+        `Post. mean`      = sprintf("%.3f (%.1f%%)", posterior_mean, 100 * posterior_mean),
+        `Post. 90% CI`    = sprintf("[%.3f, %.3f]", posterior_p05, posterior_p95),
+        `Shift`           = sprintf("%+.4f", delta_prob)
+      )
+    DT::datatable(df, rownames = FALSE,
+                  options = list(dom = "t", scrollX = TRUE)) %>%
+      DT::formatStyle("Shift",
+        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00")))
+  })
+
+  # Apply: merge new wells into the bootstrap pool used by the simulation.
+  observeEvent(input$bayes_apply, {
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    req(!is.null(br))
+    bayes_merged_wells_rv(br$merged_wells)
+    showNotification(
+      sprintf("Applied: simulation will now bootstrap from %d combined wells (%d prior + %d new).",
+              nrow(br$merged_wells), br$n_prior, br$n_new),
+      type = "message", duration = 6)
+  })
+
+  output$bayes_apply_status <- renderUI({
+    mw <- bayes_merged_wells_rv()
+    if (is.null(mw)) return(NULL)
+    tags$small(class = "text-success",
+      sprintf("Active: simulation is using %d merged wells. Re-run to update results.", nrow(mw)))
   })
 
   # --- Scenario library: save/compare run configurations -------------------

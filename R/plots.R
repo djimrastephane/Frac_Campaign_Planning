@@ -83,6 +83,123 @@ plot_campaign_distribution <- function(results) {
   }
 }
 
+# ---- Bayesian Duration Updating (Issue #7) ----------------------------------
+
+# Prior vs posterior predictive density overlay, faceted by duration parameter.
+# `bayesian` is the list returned by run_bayesian_update().
+# `historical_wells` and `new_wells` are the raw tibbles (for empirical curves).
+plot_bayesian_duration_update <- function(bayesian, historical_wells, new_wells = NULL) {
+  if (is.null(bayesian) || is.null(bayesian$duration_update)) {
+    return(ggplot() +
+             labs(title = "Upload new campaign wells to see the Bayesian duration update") +
+             theme_frac())
+  }
+
+  dur  <- bayesian$duration_update
+  cols <- list(
+    frac_days_per_stage   = "frac_days_per_stage",
+    milling_days_per_plug = "milling_days_per_plug"
+  )
+
+  # Build density curves for each parameter
+  curve_df <- bind_rows(lapply(dur$parameter, function(key) {
+    row   <- dur[dur$parameter == key, ]
+    lbl   <- row$label
+    prior_vals <- historical_wells[[cols[[key]]]]
+    prior_vals <- prior_vals[!is.na(prior_vals) & prior_vals > 0]
+    x_range <- range(c(prior_vals,
+                       row$posterior_p10 - 0.1,
+                       row$posterior_p90 + 0.1), na.rm = TRUE)
+    x_range[1] <- max(0, x_range[1])
+    xs <- seq(x_range[1], x_range[2], length.out = 300)
+
+    prior_d     <- dnorm(xs, row$prior_mean,     row$prior_sd)
+    post_d      <- dnorm(xs, row$posterior_mean, row$posterior_sd_pred)
+
+    bind_rows(
+      tibble(parameter = lbl, x = xs, density = prior_d, curve = "Prior"),
+      tibble(parameter = lbl, x = xs, density = post_d,  curve = "Posterior")
+    )
+  }))
+
+  # P50 reference lines
+  ref_df <- bind_rows(lapply(dur$parameter, function(key) {
+    row <- dur[dur$parameter == key, ]
+    bind_rows(
+      tibble(parameter = row$label, xint = row$prior_p50,     curve = "Prior"),
+      tibble(parameter = row$label, xint = row$posterior_p50, curve = "Posterior")
+    )
+  }))
+
+  ggplot(curve_df, aes(x = x, y = density, colour = curve, linetype = curve)) +
+    geom_line(linewidth = 1.1) +
+    geom_vline(data = ref_df, aes(xintercept = xint, colour = curve),
+               linetype = "dashed", linewidth = 0.5, show.legend = FALSE) +
+    scale_colour_manual(values = c("Prior" = "#0072B2", "Posterior" = "#E69F00"), name = NULL) +
+    scale_linetype_manual(values = c("Prior" = "solid", "Posterior" = "solid"), guide = "none") +
+    facet_wrap(~ parameter, scales = "free", ncol = 2) +
+    labs(
+      title    = "Bayesian duration update — prior vs posterior predictive",
+      subtitle = sprintf("Prior: %d historical wells  |  New data: %d wells  |  Dashed = P50",
+                         bayesian$n_prior, bayesian$n_new),
+      x = "Duration (days)",
+      y = "Density"
+    ) +
+    theme_frac(legend = "bottom")
+}
+
+# Beta density curves for prior and posterior risk probabilities.
+# `risk_update` is the tibble from bayesian_update_risks().
+plot_bayesian_risk_update <- function(risk_update) {
+  if (is.null(risk_update) || nrow(risk_update) == 0) {
+    return(ggplot() +
+             labs(title = "Upload risk observations CSV to see the Bayesian risk update") +
+             theme_frac())
+  }
+
+  # Limit to top 6 by |delta_prob|
+  top <- risk_update %>%
+    arrange(desc(abs(delta_prob))) %>%
+    slice_head(n = 6)
+
+  curve_df <- bind_rows(lapply(seq_len(nrow(top)), function(i) {
+    row <- top[i, ]
+    x_lo <- min(row$prior_prob, row$posterior_p05) * 0.5
+    x_hi <- max(row$prior_prob, row$posterior_p95) * 1.5
+    x_lo <- max(0, x_lo); x_hi <- min(1, x_hi)
+    xs   <- seq(x_lo, x_hi, length.out = 300)
+    bind_rows(
+      tibble(risk = wrap_lbl(row$risk_event, 22), x = xs,
+             density = dbeta(xs, row$alpha_prior, row$beta_prior),  curve = "Prior"),
+      tibble(risk = wrap_lbl(row$risk_event, 22), x = xs,
+             density = dbeta(xs, row$alpha_post,  row$beta_post),   curve = "Posterior")
+    )
+  }))
+
+  ref_df <- bind_rows(lapply(seq_len(nrow(top)), function(i) {
+    row <- top[i, ]
+    bind_rows(
+      tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$prior_prob,     curve = "Prior"),
+      tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$posterior_mean, curve = "Posterior")
+    )
+  }))
+
+  ggplot(curve_df, aes(x = x, y = density, colour = curve)) +
+    geom_line(linewidth = 1.0) +
+    geom_vline(data = ref_df, aes(xintercept = xint, colour = curve),
+               linetype = "dashed", linewidth = 0.5, show.legend = FALSE) +
+    scale_colour_manual(values = c("Prior" = "#0072B2", "Posterior" = "#E69F00"), name = NULL) +
+    scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+    facet_wrap(~ risk, scales = "free", ncol = 3) +
+    labs(
+      title    = "Bayesian risk probability update — prior vs posterior",
+      subtitle = "Dashed = prior / posterior mean probability",
+      x = "Event probability",
+      y = "Beta density"
+    ) +
+    theme_frac(legend = "bottom")
+}
+
 # ---- What-If Scenario Builder (Issue #11) -----------------------------------
 
 # Grouped bar chart: P10–P90 range as an error band, P50 as a point,
