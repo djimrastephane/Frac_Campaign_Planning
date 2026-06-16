@@ -464,11 +464,11 @@ One row per completed well from your previous campaigns. Minimum 5 wells. The tw
 
 ```
 WellID,PadID,StagesPlanned,StagesCompleted,PlugsInstalled,ContingencyPlugs,FracDays,CementEvalDays,MillingDays,FracDaysPerStage,MillingDaysPerPlug
-W-001,Pad_A,6,6,5,0,11.6,1.0,3.4,1.93,0.68
-W-002,Pad_A,6,6,5,0,12.0,0.8,3.5,2.00,0.70
-W-003,Pad_B,7,7,6,0,13.5,0.9,4.1,1.93,0.68
-W-004,Pad_C,6,6,5,0, 6.2,0.5,2.0,1.03,0.40   ← fast well
-W-005,Pad_D,6,6,5,0,55.5,2.1,7.5,9.25,1.50   ← slow well/screenout
+W-001, Pad_A,6,            6,              5,             0,               11.6,    1.0,           3.4,        1.93,            0.68
+W-002, Pad_A,6,            6,              5,             0,               12.0,    0.8,           3.5,        2.00,            0.70
+W-003, Pad_B,7,            7,              6,             0,               13.5,    0.9,           4.1,        1.93,            0.68
+W-004, Pad_C,6,            6,              5,             0,               6.2,     0.5,           2.0,        1.03,            0.40   ← fast well
+W-005, Pad_D,6,            6,              5,             0,               55.5,    2.1,           7.5,        9.25,            1.50   ← slow well/screenout
 ```
 
 The engine bootstrap-resamples `FracDaysPerStage` and `MillingDaysPerPlug` to build duration distributions. Include outliers — they represent real uncertainty.
