@@ -122,13 +122,82 @@ bayes <- run_bayesian_update(HISTORICAL, NEW_WELLS,
 p_dur  <- plot_bayesian_duration_update(bayes, HISTORICAL, NEW_WELLS)
 p_risk <- plot_bayesian_risk_update(bayes$risk_update)
 
+# Build a narrative text panel mirroring the new bayes_status UI output
+.bayes_narrative_panel <- function(br) {
+  dur <- br$duration_update
+  lines <- c(
+    sprintf("Update: %d prior + %d new = %d observations",
+            br$n_prior, br$n_new, br$n_prior + br$n_new),
+    sprintf("Duration priors: bootstrap from %d historical wells", br$n_prior),
+    sprintf("Risk priors: Beta(assumptions CSV, strength = %d)", br$prior_strength),
+    ""
+  )
+  for (i in seq_len(nrow(dur))) {
+    r         <- dur[i, ]
+    has_new   <- !is.na(r$new_mean) && r$n_new > 0
+    pct_diff  <- if (has_new) 100 * abs(r$new_mean / r$prior_mean - 1) else NA
+    dir_word  <- if (has_new && r$new_mean > r$prior_mean) "above" else "below"
+    post_dir  <- if (r$delta_mean > 0) "up" else if (r$delta_mean < 0) "down" else "unchanged"
+    ci_zero   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+    short_label <- substr(r$label, 1, 28)
+    lines <- c(lines,
+      sprintf("  %s", short_label),
+      if (has_new) sprintf("    New data: %d wells, mean %.3f d", r$n_new, r$new_mean)
+      else          "    New data: none",
+      sprintf("    Shift: %+.4f d", r$delta_mean),
+      sprintf("    90%% CI [%+.4f, %+.4f]", r$ci90_lo, r$ci90_hi),
+      if (has_new) sprintf("    New %.1f%% %s prior (%.3f d) -> %s",
+                           pct_diff, dir_word, r$prior_mean, post_dir)
+      else          "    Posterior unchanged.",
+      if (ci_zero) "    [CI incl. zero: within noise]"
+      else          "    [CI excl. zero: consistent shift]",
+      ""
+    )
+  }
+  if (!is.null(br$risk_update) && nrow(br$risk_update) > 0) {
+    lines <- c(lines, "  Risk updates:")
+    for (i in seq_len(nrow(br$risk_update))) {
+      r        <- br$risk_update[i, ]
+      obs_rate <- if (r$n_trials > 0L) r$n_events / r$n_trials else NA_real_
+      dir      <- if (!is.na(obs_rate)) {
+        if (obs_rate > r$prior_prob + 0.005) "above prior"
+        else if (obs_rate < r$prior_prob - 0.005) "below prior"
+        else "matches prior"
+      } else "--"
+      ci_w <- r$posterior_p95 - r$posterior_p05
+      note <- if (ci_w < 0.05) "constrained" else "uncertain"
+      nm   <- substr(r$risk_event, 1, 20)
+      lines <- c(lines,
+        sprintf("    %-20s: obs %.1f%% (%s)", nm,
+                if (!is.na(obs_rate)) 100*obs_rate else 0, dir),
+        sprintf("      post %.1f%% [%.1f%%-%.1f%%] %s",
+                100*r$posterior_mean, 100*r$posterior_p05, 100*r$posterior_p95, note))
+    }
+  }
+  ggplot() +
+    xlim(0, 1) + ylim(0, 1) +
+    annotate("text", x = 0.04, y = 0.97,
+             label    = paste(lines, collapse = "\n"),
+             hjust    = 0, vjust    = 1,
+             family   = "mono", size = 2.35, lineheight = 1.4,
+             colour   = "#212529") +
+    theme_void() +
+    theme(
+      panel.background = element_rect(fill = "#f8f9fa", colour = "#ced4da", linewidth = 0.4),
+      plot.margin      = margin(10, 4, 10, 10)
+    )
+}
+
+p_narrative <- .bayes_narrative_panel(bayes)
+
 save_png(
-  (p_dur | p_risk) +
+  (p_narrative | (p_dur / p_risk)) +
+    plot_layout(widths = c(1, 2)) +
     plot_annotation(
-      title   = "Bayesian Update — prior vs posterior after new completed-well observations",
+      title   = "Bayesian Update — diagnostic narrative and prior vs posterior distributions",
       theme   = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
     ),
-  "09_bayesian_update.png", w = 1600, h = 820
+  "09_bayesian_update.png", w = 1600, h = 900
 )
 
 # ---------------------------------------------------------------------------
