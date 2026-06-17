@@ -453,11 +453,10 @@ ui <- page_sidebar(
           full_screen = TRUE,
           card_header("Duration update — prior vs posterior predictive"),
           card_body(plotOutput("bayes_duration_plot", height = "400px")),
-          card_footer(tags$small(class = "text-muted",
-            "Prior (blue) = distribution implied by historical wells. ",
-            "Posterior (gold) = updated estimate after observing new campaign data. ",
-            "Dashed lines = P50. The posterior predictive P10/P50/P90 can be applied ",
-            "to sharpen simulation inputs."))
+          card_footer(
+            uiOutput("bayes_duration_interp"),
+            tags$small(class = "text-muted mt-1 d-block",
+              "Blue = prior (historical wells). Gold = posterior (updated). Dashed = P50."))
         )
       ),
       layout_columns(
@@ -471,10 +470,10 @@ ui <- page_sidebar(
           full_screen = TRUE,
           card_header("Risk probability update — prior vs posterior"),
           card_body(plotOutput("bayes_risk_plot", height = "380px")),
-          card_footer(tags$small(class = "text-muted",
-            "Only shown when risk observations CSV is uploaded. ",
-            "Prior (blue) = Beta distribution implied by assumptions CSV probability. ",
-            "Posterior (gold) = Beta updated with observed event counts."))
+          card_footer(
+            uiOutput("bayes_risk_interp"),
+            tags$small(class = "text-muted mt-1 d-block",
+              "Blue = prior (assumptions CSV). Gold = posterior (updated with observed counts). Dashed = mean probability."))
         )
       ),
       card(
@@ -1507,13 +1506,6 @@ server <- function(input, output, session) {
       else                  list(emoji = "\U1F7E1", label = "Stable",     cls = "bg-secondary text-white")
     }
 
-    # helper: 3-col stat row (Bootstrap grid, no bslib layout_columns)
-    .stat_row <- function(...) {
-      cols <- list(...)
-      tags$div(class = "row g-2 mb-1",
-        lapply(cols, function(x) tags$div(class = "col-4", x)))
-    }
-
     # ---- Duration Learning card ----------------------------------------------
     dur_card <- card(
       card_header(
@@ -1527,26 +1519,20 @@ server <- function(input, output, session) {
           has_new       <- !is.na(r$new_mean) && r$n_new > 0
           pct           <- if (has_new) 100 * (r$posterior_mean / r$prior_mean - 1) else 0
           includes_zero <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-          conf_text     <- if (includes_zero) "CI includes zero — evidence weak"
-                           else               "CI excludes zero — consistent shift"
-          conf_cls      <- if (includes_zero) "text-secondary" else "text-success"
+          dir_txt <- if (abs(pct) < 1 || includes_zero) "→ Stable"
+                     else if (pct > 0) sprintf("▲ Increasing (%+.1f%%)", pct)
+                     else              sprintf("▼ Decreasing (%+.1f%%)", pct)
+          dir_cls <- if (abs(pct) < 1 || includes_zero) "text-secondary"
+                     else if (pct > 0) "text-danger" else "text-success"
+          conf_txt <- if (includes_zero) "Weak confidence" else "Moderate confidence"
+          conf_cls <- if (includes_zero) "text-secondary small" else "text-success small"
           tags$div(
             class = if (i > 1L) "border-top pt-3 mt-2" else "",
-            tags$h6(class = "fw-semibold mb-2", r$label),
-            .stat_row(
-              tags$div(tags$div(class = "small text-muted", "Prior mean"),
-                       tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$prior_mean))),
-              tags$div(tags$div(class = "small text-muted", "Updated mean"),
-                       tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$posterior_mean))),
-              tags$div(tags$div(class = "small text-muted", "Change"),
-                       tags$div(class = paste("fw-bold fs-5",
-                         if (abs(pct) < 1) "text-secondary"
-                         else if (pct > 0) "text-danger" else "text-success"),
-                         sprintf("%+.1f%%", pct)))
-            ),
-            tags$div(class = "mt-1 small",
-              tags$span(class = "text-muted", "Confidence: "),
-              tags$span(class = conf_cls, conf_text))
+            tags$h6(class = "fw-semibold mb-1", r$label),
+            tags$div(class = "fs-5 fw-bold mb-1",
+              sprintf("%.3f d → %.3f d", r$prior_mean, r$posterior_mean)),
+            tags$div(class = paste("fw-semibold mb-1", dir_cls), dir_txt),
+            tags$div(class = conf_cls, conf_txt)
           )
         }))
       )
@@ -1564,28 +1550,23 @@ server <- function(input, output, session) {
           tagList(lapply(seq_len(nrow(ru)), function(i) {
             r        <- ru[i, ]
             dp       <- 100 * r$delta_prob
-            dir_txt  <- if (dp >  0.3) "↑ Increasing"
-                        else if (dp < -0.3) "↓ Decreasing"
+            dir_txt  <- if (dp >  0.3) sprintf("▲ Increasing (+%.1fpp)", dp)
+                        else if (dp < -0.3) sprintf("▼ Decreasing (%.1fpp)", dp)
                         else "→ Stable"
             dir_cls  <- if (dp >  0.3) "text-danger"
                         else if (dp < -0.3) "text-success"
                         else "text-secondary"
             ci_w     <- r$posterior_p95 - r$posterior_p05
-            conf_txt <- if (ci_w < 0.03) "Strong" else if (ci_w < 0.07) "Moderate" else "Weak"
+            conf_txt <- if (ci_w < 0.03) "Strong confidence"
+                        else if (ci_w < 0.07) "Moderate confidence" else "Weak confidence"
+            conf_cls <- if (ci_w < 0.07) "text-secondary small" else "text-secondary small"
             tags$div(
               class = if (i > 1L) "border-top pt-3 mt-2" else "",
-              tags$h6(class = "fw-semibold mb-2", r$risk_event),
-              .stat_row(
-                tags$div(tags$div(class = "small text-muted", "Prior"),
-                         tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$prior_prob))),
-                tags$div(tags$div(class = "small text-muted", "Updated"),
-                         tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$posterior_mean))),
-                tags$div(tags$div(class = "small text-muted", "Direction"),
-                         tags$div(class = paste("fw-bold", dir_cls), dir_txt))
-              ),
-              tags$div(class = "mt-1 small",
-                tags$span(class = "text-muted", "Confidence: "),
-                tags$span(conf_txt))
+              tags$h6(class = "fw-semibold mb-1", r$risk_event),
+              tags$div(class = "fs-5 fw-bold mb-1",
+                sprintf("%.1f%% → %.1f%%", 100 * r$prior_prob, 100 * r$posterior_mean)),
+              tags$div(class = paste("fw-semibold mb-1", dir_cls), dir_txt),
+              tags$div(class = conf_cls, conf_txt)
             )
           }))
         )
@@ -1689,44 +1670,52 @@ server <- function(input, output, session) {
     changed_risks <- if (!is.null(ru) && nrow(ru) > 0)
       ru[abs(100 * ru$delta_prob) >= 0.3, ] else NULL
 
-    dur_summary_ui <- if (n_dur_changed == 0) {
-      tags$div(
-        tags$div(class = "fw-semibold text-success", "Duration assumptions unchanged"),
-        tags$div(class = "small text-muted", "Changes within statistical noise")
-      )
+    # Impact-first summary bullets
+    summary_bullets <- c(
+      sprintf("%d wells analysed (%d historical + %d new)",
+              br$n_prior + br$n_new, br$n_prior, br$n_new)
+    )
+    if (n_dur_changed == 0) {
+      summary_bullets <- c(summary_bullets, "Duration assumptions stable")
     } else {
       changed_dur <- dur[vapply(seq_len(nrow(dur)), function(i) {
         r <- dur[i, ]; z <- r$ci90_lo <= 0 && r$ci90_hi >= 0
         !(z || abs(100 * (r$posterior_mean / r$prior_mean - 1)) < 1)
       }, logical(1)), ]
-      tagList(
-        tags$div(class = "fw-semibold text-warning", "Duration assumptions updated:"),
-        tags$ul(class = "small mb-0",
-          lapply(seq_len(nrow(changed_dur)), function(i) {
-            r <- changed_dur[i, ]
-            tags$li(sprintf("%s: %.3f d → %.3f d", r$label, r$prior_mean, r$posterior_mean))
-          })
-        )
-      )
+      for (i in seq_len(nrow(changed_dur))) {
+        r <- changed_dur[i, ]
+        pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
+        summary_bullets <- c(summary_bullets,
+          sprintf("%s %s from %.3f d to %.3f d",
+                  r$label, if (pct > 0) "increased" else "decreased",
+                  r$prior_mean, r$posterior_mean))
+      }
+    }
+    if (!is.null(changed_risks) && nrow(changed_risks) > 0) {
+      for (i in seq_len(nrow(changed_risks))) {
+        r <- changed_risks[i, ]
+        summary_bullets <- c(summary_bullets,
+          sprintf("%s risk %s from %.1f%% to %.1f%%",
+                  r$risk_event,
+                  if (r$delta_prob > 0) "increased" else "decreased",
+                  100 * r$prior_prob, 100 * r$posterior_mean))
+      }
+      summary_bullets <- c(summary_bullets, "Planning assumptions updated")
+    } else {
+      summary_bullets <- c(summary_bullets, "Risk assumptions stable")
     }
 
-    risk_summary_ui <- if (!is.null(changed_risks) && nrow(changed_risks) > 0) {
-      tagList(
-        tags$div(class = "fw-semibold text-warning", "Risk assumptions updated:"),
-        tags$ul(class = "small mb-0",
-          lapply(seq_len(nrow(changed_risks)), function(i) {
-            r <- changed_risks[i, ]
-            tags$li(sprintf("%s: %.1f%% → %.1f%%",
-                            r$risk_event, 100 * r$prior_prob, 100 * r$posterior_mean))
-          })
-        )
-      )
-    } else {
-      tags$div(
-        tags$div(class = "fw-semibold text-success", "Risk assumptions unchanged"),
-        tags$div(class = "small text-muted", "Observed rates consistent with priors")
-      )
-    }
+    dur_summary_ui <- if (n_dur_changed == 0)
+      tags$div(class = "fw-semibold text-success", "Duration assumptions stable")
+    else
+      tags$div(class = "fw-semibold text-warning", "Duration assumptions updated")
+
+    risk_summary_ui <- if (!is.null(changed_risks) && nrow(changed_risks) > 0)
+      tags$div(class = "fw-semibold text-warning",
+        sprintf("%d risk assumption%s updated",
+                nrow(changed_risks), if (nrow(changed_risks) == 1L) "" else "s"))
+    else
+      tags$div(class = "fw-semibold text-success", "Risk assumptions stable")
 
     action_text <- if (n_dur_changed == 0 && (is.null(changed_risks) || nrow(changed_risks) == 0)) {
       "No updates required — continue monitoring."
@@ -1745,19 +1734,67 @@ server <- function(input, output, session) {
         class = "bg-light",
         tags$div(class = "row align-items-center",
           tags$div(class = "col-8", tags$span(class = "fw-bold", "Campaign Learning Summary")),
-          tags$div(class = "col-4 text-end text-muted small",
-            sprintf("%d wells analysed", br$n_prior + br$n_new),
-            tags$br(),
-            sprintf("%d historical + %d new", br$n_prior, br$n_new))
+          tags$div(class = "col-4 text-end",
+            tags$span(class = "fw-semibold",
+              if (n_dur_changed == 0 && (is.null(changed_risks) || nrow(changed_risks) == 0))
+                tags$span(class = "text-success", "No changes required")
+              else
+                tags$span(class = "text-warning", "Assumptions updated")))
         )
       ),
       card_body(
         tags$div(class = "row g-3",
-          tags$div(class = "col-md-4", dur_summary_ui),
-          tags$div(class = "col-md-4", risk_summary_ui),
-          tags$div(class = "col-md-4",
-            tags$div(class = "small text-muted fw-semibold mb-1", "Recommended action:"),
+          tags$div(class = "col-md-8",
+            tags$ul(class = "mb-0",
+              lapply(summary_bullets, tags$li))),
+          tags$div(class = "col-md-4 border-start",
+            tags$div(class = "small text-muted fw-semibold mb-1", "Recommended action"),
             tags$div(class = "fw-semibold", action_text))
+        )
+      )
+    )
+
+    # ---- Business Impact card ------------------------------------------------
+    impact_items <- c(
+      unlist(lapply(seq_len(nrow(dur)), function(i) {
+        r <- dur[i, ]
+        z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+        pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
+        if (z || abs(pct) < 1)
+          sprintf("%s unchanged", r$label)
+        else
+          sprintf("%s %s %.1f%% (%.3f d → %.3f d)",
+                  r$label, if (pct > 0) "increased" else "decreased",
+                  abs(pct), r$prior_mean, r$posterior_mean)
+      })),
+      if (!is.null(ru) && nrow(ru) > 0) {
+        unlist(lapply(seq_len(nrow(ru)), function(i) {
+          r <- ru[i, ]
+          dp      <- 100 * r$delta_prob
+          rel_pct <- if (r$prior_prob > 0) dp / r$prior_prob * 100 else 0
+          if (abs(dp) < 0.3)
+            sprintf("%s unchanged", r$risk_event)
+          else
+            sprintf("%s risk %+.0f%% (%.1f%% → %.1f%%)",
+                    r$risk_event, rel_pct,
+                    100 * r$prior_prob, 100 * r$posterior_mean)
+        }))
+      } else character(0)
+    )
+    any_changed <- n_dur_changed > 0 || (!is.null(changed_risks) && nrow(changed_risks) > 0)
+    if (any_changed)
+      impact_items <- c(impact_items, "Monte Carlo forecast should be re-run with updated assumptions")
+
+    impact_card <- card(
+      class = "mt-3",
+      card_header(tags$span(class = "fw-bold", "Business Impact")),
+      card_body(
+        tags$ul(class = "mb-0",
+          lapply(impact_items, function(txt) {
+            is_action <- grepl("Monte Carlo", txt)
+            tags$li(class = if (is_action) "fw-semibold text-primary" else "",
+                    txt)
+          })
         )
       )
     )
@@ -1770,7 +1807,10 @@ server <- function(input, output, session) {
         tags$div(class = "col-md-6", risk_card)
       ),
       badges_card,
-      rec_card
+      tags$div(class = "row g-3 mt-0",
+        tags$div(class = "col-md-6", rec_card),
+        tags$div(class = "col-md-6", impact_card)
+      )
     )
   })
 
@@ -1802,6 +1842,41 @@ server <- function(input, output, session) {
                   options = list(dom = "t", scrollX = TRUE)) %>%
       DT::formatStyle("Shift (d)",
         color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00")))
+  })
+
+  output$bayes_duration_interp <- renderUI({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    if (is.null(br)) return(NULL)
+    dur <- br$duration_update
+    msgs <- vapply(seq_len(nrow(dur)), function(i) {
+      r <- dur[i, ]
+      z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+      pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
+      if (z || abs(pct) < 1)
+        sprintf("%s: curves nearly identical — duration assumption is stable.", r$label)
+      else if (pct > 0)
+        sprintf("%s: posterior shifted right — new wells are running %.1f%% longer than historical.", r$label, pct)
+      else
+        sprintf("%s: posterior shifted left — new wells are running %.1f%% shorter than historical.", r$label, abs(pct))
+    }, character(1))
+    tags$p(class = "small text-primary mb-0 fw-semibold", paste(msgs, collapse = " "))
+  })
+
+  output$bayes_risk_interp <- renderUI({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    if (is.null(br) || is.null(br$risk_update) || nrow(br$risk_update) == 0) return(NULL)
+    ru <- br$risk_update
+    msgs <- vapply(seq_len(nrow(ru)), function(i) {
+      r  <- ru[i, ]
+      dp <- 100 * r$delta_prob
+      if (abs(dp) < 0.3)
+        sprintf("%s: posterior overlaps prior — observed rate consistent with planning assumption.", r$risk_event)
+      else if (dp > 0)
+        sprintf("%s: posterior shifted right — observed events are more frequent than assumed.", r$risk_event)
+      else
+        sprintf("%s: posterior shifted left — observed events are less frequent than assumed.", r$risk_event)
+    }, character(1))
+    tags$p(class = "small text-primary mb-0 fw-semibold", paste(msgs, collapse = " "))
   })
 
   output$bayes_risk_plot <- renderPlot({
