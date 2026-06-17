@@ -1487,18 +1487,96 @@ server <- function(input, output, session) {
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br)) return(tags$p(class = "text-danger", "Update failed — check the file format."))
     dur <- br$duration_update
+
+    .dur_sig <- function(r) {
+      includes_zero <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+      if (includes_zero)
+        list(color = "text-secondary",
+             text  = "90% CI includes zero — shift is within sampling noise; more data needed to confirm.")
+      else
+        list(color = "text-success",
+             text  = sprintf("90%% CI excludes zero — %s shift is directionally consistent.",
+                             if (r$delta_mean > 0) "upward" else "downward"))
+    }
+
     tags$div(
+      # 1. How much data was observed
       tags$p(class = "text-success fw-bold",
         sprintf("Bayesian update complete: %d prior wells + %d new wells = %d posterior observations.",
                 br$n_prior, br$n_new, br$n_prior + br$n_new)),
+
+      # 2. Where the priors came from
+      tags$p(class = "small text-muted mb-1",
+        tags$strong("Duration priors"), " are fitted to your ",
+        tags$strong(sprintf("%d historical wells", br$n_prior)),
+        " (empirical mean and SD of each duration column). ",
+        tags$strong("Risk priors"), " are Beta distributions anchored to each risk row's",
+        " probability in the assumptions CSV ",
+        sprintf("(prior strength = %d equivalent observations).", br$prior_strength)),
+      tags$hr(class = "my-2"),
+
+      # 3 & 4. Per-parameter: why it moved and whether it's meaningful
       if (!is.null(dur) && nrow(dur) > 0) {
-        tags$ul(class = "mb-0 small",
+        tags$div(
           lapply(seq_len(nrow(dur)), function(i) {
-            r <- dur[i, ]
-            tags$li(sprintf("%s: prior P50 = %.3f d  →  posterior P50 = %.3f d  (shift %+.3f d, 90%% CI [%+.3f, %+.3f])",
-                            r$label, r$prior_p50, r$posterior_p50,
-                            r$delta_mean, r$ci90_lo, r$ci90_hi))
+            r       <- dur[i, ]
+            has_new <- !is.na(r$new_mean) && r$n_new > 0
+            sig     <- .dur_sig(r)
+
+            why_text <- if (has_new) {
+              pct_diff       <- 100 * (r$new_mean / r$prior_mean - 1)
+              direction_word <- if (r$new_mean > r$prior_mean) "above" else "below"
+              sprintf("New wells averaged %.3f d (%.1f%% %s prior mean of %.3f d), pulling posterior %s.",
+                      r$new_mean, abs(pct_diff), direction_word, r$prior_mean,
+                      if (r$delta_mean > 0) "up" else if (r$delta_mean < 0) "down" else "negligibly")
+            } else {
+              "No new observations — posterior identical to prior."
+            }
+
+            tags$div(class = "mb-3",
+              tags$strong(class = "d-block", r$label),
+              tags$ul(class = "small mb-0",
+                tags$li(if (has_new)
+                  sprintf("New data: %d well%s observed, mean %.3f d",
+                          r$n_new, if (r$n_new == 1L) "" else "s", r$new_mean)
+                  else "New data: none"),
+                tags$li(sprintf("Posterior shifted by %+.4f d  (90%% CI [%+.4f, %+.4f])",
+                                r$delta_mean, r$ci90_lo, r$ci90_hi)),
+                tags$li(why_text),
+                tags$li(tags$span(class = sig$color, sig$text))
+              )
+            )
           })
+        )
+      },
+
+      # Risk update narrative
+      if (!is.null(br$risk_update) && nrow(br$risk_update) > 0) {
+        ru <- br$risk_update
+        tags$div(
+          tags$hr(class = "my-2"),
+          tags$strong("Risk probability updates"),
+          tags$ul(class = "small mt-1",
+            lapply(seq_len(nrow(ru)), function(i) {
+              r        <- ru[i, ]
+              obs_rate <- if (r$n_trials > 0L) r$n_events / r$n_trials else NA_real_
+              ci_width  <- r$posterior_p95 - r$posterior_p05
+              direction <- if (!is.na(obs_rate)) {
+                if (obs_rate > r$prior_prob + 0.005) "higher than"
+                else if (obs_rate < r$prior_prob - 0.005) "lower than"
+                else "consistent with"
+              } else "—"
+              constraint <- if (ci_width < 0.05) "well-constrained" else "substantial uncertainty remains"
+              tags$li(sprintf(
+                "%s: observed %d/%d (%.1f%%), %s prior (%.1f%%). Posterior %.1f%% [%.1f%%–%.1f%%] — %s.",
+                r$risk_event, r$n_events, r$n_trials,
+                if (!is.na(obs_rate)) 100 * obs_rate else 0,
+                direction, 100 * r$prior_prob,
+                100 * r$posterior_mean, 100 * r$posterior_p05, 100 * r$posterior_p95,
+                constraint
+              ))
+            })
+          )
         )
       }
     )
