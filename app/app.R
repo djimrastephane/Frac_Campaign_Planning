@@ -1695,8 +1695,95 @@ server <- function(input, output, session) {
       )
     )
 
+    # ---- Summary card --------------------------------------------------------
+    n_dur_changed <- sum(vapply(seq_len(nrow(dur)), function(i) {
+      r <- dur[i, ]
+      z <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+      !(z || abs(100 * (r$posterior_mean / r$prior_mean - 1)) < 1)
+    }, logical(1)))
+
+    changed_risks <- if (!is.null(ru) && nrow(ru) > 0)
+      ru[abs(100 * ru$delta_prob) >= 0.3, ] else NULL
+
+    dur_summary_ui <- if (n_dur_changed == 0) {
+      tags$div(
+        tags$div(class = "fw-semibold text-success", "Duration assumptions unchanged"),
+        tags$div(class = "small text-muted", "Changes within statistical noise")
+      )
+    } else {
+      changed_dur <- dur[vapply(seq_len(nrow(dur)), function(i) {
+        r <- dur[i, ]; z <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+        !(z || abs(100 * (r$posterior_mean / r$prior_mean - 1)) < 1)
+      }, logical(1)), ]
+      tagList(
+        tags$div(class = "fw-semibold text-warning", "Duration assumptions updated:"),
+        tags$ul(class = "small mb-0",
+          lapply(seq_len(nrow(changed_dur)), function(i) {
+            r <- changed_dur[i, ]
+            tags$li(sprintf("%s: %.3f d → %.3f d", r$label, r$prior_mean, r$posterior_mean))
+          })
+        )
+      )
+    }
+
+    risk_summary_ui <- if (!is.null(changed_risks) && nrow(changed_risks) > 0) {
+      tagList(
+        tags$div(class = "fw-semibold text-warning", "Risk assumptions updated:"),
+        tags$ul(class = "small mb-0",
+          lapply(seq_len(nrow(changed_risks)), function(i) {
+            r <- changed_risks[i, ]
+            tags$li(sprintf("%s: %.1f%% → %.1f%%",
+                            r$risk_event, 100 * r$prior_prob, 100 * r$posterior_mean))
+          })
+        )
+      )
+    } else {
+      tags$div(
+        tags$div(class = "fw-semibold text-success", "Risk assumptions unchanged"),
+        tags$div(class = "small text-muted", "Observed rates consistent with priors")
+      )
+    }
+
+    action_text <- if (n_dur_changed == 0 && (is.null(changed_risks) || nrow(changed_risks) == 0)) {
+      "No updates required — continue monitoring."
+    } else if (n_dur_changed == 0) {
+      "Update risk register, retain duration assumptions."
+    } else if (is.null(changed_risks) || nrow(changed_risks) == 0) {
+      "Update duration planning estimates, retain risk assumptions."
+    } else {
+      "Update duration estimates and risk register."
+    }
+
+    summary_card <- card(
+      class = "mb-3",
+      style = "border: 2px solid #0d6efd;",
+      card_header(
+        class = "bg-light",
+        layout_columns(
+          col_widths = c(8, 4),
+          tags$span(class = "fw-bold", "Campaign Learning Summary"),
+          tags$div(class = "text-end text-muted small",
+            sprintf("%d wells analysed", br$n_prior + br$n_new),
+            tags$br(),
+            sprintf("%d historical + %d new", br$n_prior, br$n_new))
+        )
+      ),
+      card_body(
+        layout_columns(
+          col_widths = c(4, 4, 4),
+          dur_summary_ui,
+          risk_summary_ui,
+          tags$div(
+            tags$div(class = "small text-muted fw-semibold mb-1", "Recommended action:"),
+            tags$div(class = "fw-semibold", action_text)
+          )
+        )
+      )
+    )
+
     # ---- Assemble ------------------------------------------------------------
     tagList(
+      summary_card,
       layout_columns(col_widths = c(6, 6), dur_card, risk_card),
       badges_card,
       rec_card
