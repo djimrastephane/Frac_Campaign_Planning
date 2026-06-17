@@ -1350,44 +1350,49 @@ plot_schedule_risk_heatmap <- function(heatmap_data, top_n_risks = 10L) {
 #' Well risk ranking bar chart.
 #'
 #' @param heatmap_data  Output of build_schedule_risk_heatmap().
-plot_well_risk_ranking <- function(heatmap_data) {
+plot_well_risk_ranking <- function(heatmap_data, top_n = 15L) {
   ws <- heatmap_data$well_scores
   if (is.null(ws) || nrow(ws) == 0) {
     return(ggplot() + labs(title = "No risk data available") + theme_frac())
   }
 
-  # Order wells by numeric suffix
-  well_levels <- unique(ws$well_id)
-  well_num    <- suppressWarnings(as.integer(gsub("\\D", "", well_levels)))
-  well_levels <- well_levels[order(well_num, na.last = TRUE)]
+  n_modes <- length(unique(ws$operation_mode))
 
+  # Keep top N wells per mode by total expected delay, ordered highest first
   df <- ws %>%
-    mutate(
-      well_id    = factor(well_id, levels = well_levels),
-      risk_level = factor(risk_level, levels = c("Low", "Medium", "High", "Critical"))
-    ) %>%
-    arrange(operation_mode, desc(total_expected_delay))
+    mutate(risk_level = factor(risk_level, levels = c("Low", "Medium", "High", "Critical"))) %>%
+    group_by(operation_mode) %>%
+    slice_max(total_expected_delay, n = top_n, with_ties = FALSE) %>%
+    ungroup() %>%
+    # reorder within each facet by delay so bars read top-to-bottom highest first
+    mutate(well_id = reorder(well_id, total_expected_delay))
 
-  n_modes <- length(unique(df$operation_mode))
+  # Label threshold: only annotate bars that are at least 25% of the mode max
+  label_thresh <- df %>%
+    group_by(operation_mode) %>%
+    summarise(thresh = 0.25 * max(total_expected_delay), .groups = "drop")
+  df <- df %>% left_join(label_thresh, by = "operation_mode")
 
-  ggplot(df, aes(x = well_id, y = total_expected_delay, fill = risk_level)) +
-    geom_col(width = 0.75, alpha = 0.9) +
-    geom_text(aes(label = sprintf("%.2f d", total_expected_delay)),
-              vjust = -0.4, size = 2.8, colour = "grey30") +
-    scale_fill_manual(values = .RISK_LEVEL_COLOURS, drop = FALSE,
-                      name = "Risk level") +
+  ggplot(df, aes(y = well_id, x = total_expected_delay, fill = risk_level)) +
+    geom_col(width = 0.7, alpha = 0.9) +
+    geom_text(
+      data = df %>% filter(total_expected_delay >= thresh),
+      aes(label = sprintf("%.2f d", total_expected_delay)),
+      hjust = -0.15, size = 2.8, colour = "grey30"
+    ) +
+    scale_fill_manual(values = .RISK_LEVEL_COLOURS, drop = FALSE, name = "Risk level") +
     {if (n_modes > 1) facet_wrap(~operation_mode, ncol = 2, scales = "free_y") else NULL} +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15)),
+    scale_x_continuous(expand = expansion(mult = c(0, 0.18)),
                        labels = function(x) sprintf("%.1f d", x)) +
     labs(
       title    = "Well risk ranking \u2014 total expected delay contribution",
-      subtitle = "Sum of expected delay days per well across all risk types",
-      x        = "Well",
-      y        = "Expected delay (days)"
+      subtitle = sprintf("Top %d wells per mode, ranked by total expected delay across all risk types", top_n),
+      x        = "Expected delay (days)",
+      y        = NULL
     ) +
     theme_frac(legend = "bottom") +
     theme(
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 8),
       strip.text  = element_text(face = "bold")
     )
 }
