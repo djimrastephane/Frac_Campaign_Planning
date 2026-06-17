@@ -1487,98 +1487,219 @@ server <- function(input, output, session) {
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br)) return(tags$p(class = "text-danger", "Update failed — check the file format."))
     dur <- br$duration_update
+    ru  <- br$risk_update
 
-    .dur_sig <- function(r) {
+    # ---- badge helpers -------------------------------------------------------
+    .dur_badge <- function(r) {
       includes_zero <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-      if (includes_zero)
-        list(color = "text-secondary",
-             text  = "90% CI includes zero — shift is within sampling noise; more data needed to confirm.")
-      else
-        list(color = "text-success",
-             text  = sprintf("90%% CI excludes zero — %s shift is directionally consistent.",
-                             if (r$delta_mean > 0) "upward" else "downward"))
+      pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
+      if      (includes_zero)   list(emoji = "\U1F7E1", label = "Stable",     cls = "bg-secondary text-white")
+      else if (pct  >  2)       list(emoji = "\U1F534", label = "Increasing", cls = "bg-danger text-white")
+      else if (pct  >  0)       list(emoji = "\U1F7E0", label = "Increasing", cls = "bg-warning text-dark")
+      else if (pct  < -2)       list(emoji = "\U1F7E2", label = "Decreasing", cls = "bg-success text-white")
+      else                      list(emoji = "\U1F7E1", label = "Stable",     cls = "bg-secondary text-white")
+    }
+    .risk_badge <- function(r) {
+      dp <- 100 * r$delta_prob
+      if      (dp  >  1.5)  list(emoji = "\U1F534", label = "Increasing", cls = "bg-danger text-white")
+      else if (dp  >  0.3)  list(emoji = "\U1F7E0", label = "Increasing", cls = "bg-warning text-dark")
+      else if (dp  < -0.3)  list(emoji = "\U1F7E2", label = "Decreasing", cls = "bg-success text-white")
+      else                  list(emoji = "\U1F7E1", label = "Stable",     cls = "bg-secondary text-white")
     }
 
-    tags$div(
-      # 1. How much data was observed
-      tags$p(class = "text-success fw-bold",
-        sprintf("Bayesian update complete: %d prior wells + %d new wells = %d posterior observations.",
-                br$n_prior, br$n_new, br$n_prior + br$n_new)),
+    # ---- Duration Learning card ----------------------------------------------
+    dur_card <- card(
+      card_header(
+        tags$span(class = "fw-bold", "Duration Learning"),
+        tags$small(class = "text-muted ms-2",
+          sprintf("%d historical wells → %d new wells", br$n_prior, br$n_new))
+      ),
+      card_body(
+        tagList(lapply(seq_len(nrow(dur)), function(i) {
+          r             <- dur[i, ]
+          has_new       <- !is.na(r$new_mean) && r$n_new > 0
+          pct           <- if (has_new) 100 * (r$posterior_mean / r$prior_mean - 1) else 0
+          includes_zero <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+          conf_text     <- if (includes_zero) "CI includes zero — evidence weak"
+                           else               "CI excludes zero — consistent shift"
+          conf_cls      <- if (includes_zero) "text-secondary" else "text-success"
+          tags$div(
+            class = if (i > 1L) "border-top pt-3 mt-2" else "",
+            tags$h6(class = "fw-semibold mb-2", r$label),
+            layout_columns(
+              col_widths = c(4, 4, 4),
+              tags$div(
+                tags$div(class = "small text-muted", "Prior mean"),
+                tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$prior_mean))
+              ),
+              tags$div(
+                tags$div(class = "small text-muted", "Updated mean"),
+                tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$posterior_mean))
+              ),
+              tags$div(
+                tags$div(class = "small text-muted", "Change"),
+                tags$div(
+                  class = paste("fw-bold fs-5",
+                    if (abs(pct) < 1) "text-secondary"
+                    else if (pct > 0) "text-danger" else "text-success"),
+                  sprintf("%+.1f%%", pct)
+                )
+              )
+            ),
+            tags$div(
+              class = "mt-1 small",
+              tags$span(class = "text-muted", "Confidence: "),
+              tags$span(class = conf_cls, conf_text)
+            )
+          )
+        }))
+      )
+    )
 
-      # 2. Where the priors came from
-      tags$p(class = "small text-muted mb-1",
-        tags$strong("Duration priors"), " are fitted to your ",
-        tags$strong(sprintf("%d historical wells", br$n_prior)),
-        " (empirical mean and SD of each duration column). ",
-        tags$strong("Risk priors"), " are Beta distributions anchored to each risk row's",
-        " probability in the assumptions CSV ",
-        sprintf("(prior strength = %d equivalent observations).", br$prior_strength)),
-      tags$hr(class = "my-2"),
-
-      # 3 & 4. Per-parameter: why it moved and whether it's meaningful
-      if (!is.null(dur) && nrow(dur) > 0) {
-        tags$div(
-          lapply(seq_len(nrow(dur)), function(i) {
-            r       <- dur[i, ]
-            has_new <- !is.na(r$new_mean) && r$n_new > 0
-            sig     <- .dur_sig(r)
-
-            why_text <- if (has_new) {
-              pct_diff       <- 100 * (r$new_mean / r$prior_mean - 1)
-              direction_word <- if (r$new_mean > r$prior_mean) "above" else "below"
-              sprintf("New wells averaged %.3f d (%.1f%% %s prior mean of %.3f d), pulling posterior %s.",
-                      r$new_mean, abs(pct_diff), direction_word, r$prior_mean,
-                      if (r$delta_mean > 0) "up" else if (r$delta_mean < 0) "down" else "negligibly")
-            } else {
-              "No new observations — posterior identical to prior."
-            }
-
-            tags$div(class = "mb-3",
-              tags$strong(class = "d-block", r$label),
-              tags$ul(class = "small mb-0",
-                tags$li(if (has_new)
-                  sprintf("New data: %d well%s observed, mean %.3f d",
-                          r$n_new, if (r$n_new == 1L) "" else "s", r$new_mean)
-                  else "New data: none"),
-                tags$li(sprintf("Posterior shifted by %+.4f d  (90%% CI [%+.4f, %+.4f])",
-                                r$delta_mean, r$ci90_lo, r$ci90_hi)),
-                tags$li(why_text),
-                tags$li(tags$span(class = sig$color, sig$text))
+    # ---- Risk Learning card --------------------------------------------------
+    risk_card <- if (!is.null(ru) && nrow(ru) > 0) {
+      card(
+        card_header(
+          tags$span(class = "fw-bold", "Risk Learning"),
+          tags$small(class = "text-muted ms-2",
+            sprintf("%d event%s observed", nrow(ru), if (nrow(ru) == 1L) "" else "s"))
+        ),
+        card_body(
+          tagList(lapply(seq_len(nrow(ru)), function(i) {
+            r        <- ru[i, ]
+            dp       <- 100 * r$delta_prob
+            dir_txt  <- if (dp >  0.3) "↑ Increasing"
+                        else if (dp < -0.3) "↓ Decreasing"
+                        else "→ Stable"
+            dir_cls  <- if (dp >  0.3) "text-danger"
+                        else if (dp < -0.3) "text-success"
+                        else "text-secondary"
+            ci_w     <- r$posterior_p95 - r$posterior_p05
+            conf_txt <- if (ci_w < 0.03) "Strong" else if (ci_w < 0.07) "Moderate" else "Weak"
+            tags$div(
+              class = if (i > 1L) "border-top pt-3 mt-2" else "",
+              tags$h6(class = "fw-semibold mb-2", r$risk_event),
+              layout_columns(
+                col_widths = c(4, 4, 4),
+                tags$div(
+                  tags$div(class = "small text-muted", "Prior"),
+                  tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$prior_prob))
+                ),
+                tags$div(
+                  tags$div(class = "small text-muted", "Updated"),
+                  tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$posterior_mean))
+                ),
+                tags$div(
+                  tags$div(class = "small text-muted", "Direction"),
+                  tags$div(class = paste("fw-bold", dir_cls), dir_txt)
+                )
+              ),
+              tags$div(
+                class = "mt-1 small",
+                tags$span(class = "text-muted", "Confidence: "),
+                tags$span(conf_txt)
               )
             )
-          })
+          }))
         )
-      },
+      )
+    } else {
+      card(
+        card_header(tags$span(class = "fw-bold", "Risk Learning")),
+        card_body(tags$p(class = "text-muted small mb-0",
+          "Upload a risk observations CSV to see Beta-Binomial risk probability updates."))
+      )
+    }
 
-      # Risk update narrative
-      if (!is.null(br$risk_update) && nrow(br$risk_update) > 0) {
-        ru <- br$risk_update
+    # ---- What changed? badges ------------------------------------------------
+    dur_badge_rows <- tagList(lapply(seq_len(nrow(dur)), function(i) {
+      r <- dur[i, ]; b <- .dur_badge(r)
+      tags$div(
+        class = "d-flex align-items-center justify-content-between py-2 border-bottom",
+        tags$span(r$label),
+        tags$span(class = paste("badge rounded-pill", b$cls), paste(b$emoji, b$label))
+      )
+    }))
+    risk_badge_rows <- if (!is.null(ru) && nrow(ru) > 0) {
+      tagList(lapply(seq_len(nrow(ru)), function(i) {
+        r <- ru[i, ]; b <- .risk_badge(r)
         tags$div(
-          tags$hr(class = "my-2"),
-          tags$strong("Risk probability updates"),
-          tags$ul(class = "small mt-1",
-            lapply(seq_len(nrow(ru)), function(i) {
-              r        <- ru[i, ]
-              obs_rate <- if (r$n_trials > 0L) r$n_events / r$n_trials else NA_real_
-              ci_width  <- r$posterior_p95 - r$posterior_p05
-              direction <- if (!is.na(obs_rate)) {
-                if (obs_rate > r$prior_prob + 0.005) "higher than"
-                else if (obs_rate < r$prior_prob - 0.005) "lower than"
-                else "consistent with"
-              } else "—"
-              constraint <- if (ci_width < 0.05) "well-constrained" else "substantial uncertainty remains"
-              tags$li(sprintf(
-                "%s: observed %d/%d (%.1f%%), %s prior (%.1f%%). Posterior %.1f%% [%.1f%%–%.1f%%] — %s.",
-                r$risk_event, r$n_events, r$n_trials,
-                if (!is.na(obs_rate)) 100 * obs_rate else 0,
-                direction, 100 * r$prior_prob,
-                100 * r$posterior_mean, 100 * r$posterior_p05, 100 * r$posterior_p95,
-                constraint
-              ))
-            })
-          )
+          class = "d-flex align-items-center justify-content-between py-2 border-bottom",
+          tags$span(r$risk_event),
+          tags$span(class = paste("badge rounded-pill", b$cls), paste(b$emoji, b$label))
         )
-      }
+      }))
+    } else tagList()
+
+    badges_card <- card(
+      class = "mt-3",
+      card_header(tags$span(class = "fw-bold", "What changed?")),
+      card_body(
+        layout_columns(
+          col_widths = c(6, 6),
+          tags$div(
+            tags$div(class = "small fw-semibold text-muted mb-1", "Duration parameters"),
+            dur_badge_rows
+          ),
+          if (!is.null(ru) && nrow(ru) > 0)
+            tags$div(
+              tags$div(class = "small fw-semibold text-muted mb-1", "Risk probabilities"),
+              risk_badge_rows
+            )
+          else tags$div()
+        )
+      )
+    )
+
+    # ---- Recommendation card -------------------------------------------------
+    rec_items <- c(
+      unlist(lapply(seq_len(nrow(dur)), function(i) {
+        r <- dur[i, ]
+        pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
+        includes_zero <- r$ci90_lo <= 0 && r$ci90_hi >= 0
+        lbl <- tolower(r$label)
+        if (includes_zero || abs(pct) < 1) {
+          sprintf("No update required for %s assumptions (shift within noise).", lbl)
+        } else if (pct > 0) {
+          sprintf("Increase %s planning estimate from %.3f d to %.3f d (%+.1f%%).",
+                  lbl, r$prior_mean, r$posterior_mean, pct)
+        } else {
+          sprintf("Decrease %s planning estimate from %.3f d to %.3f d (%+.1f%%).",
+                  lbl, r$prior_mean, r$posterior_mean, pct)
+        }
+      })),
+      if (!is.null(ru) && nrow(ru) > 0) {
+        unlist(lapply(seq_len(nrow(ru)), function(i) {
+          r <- ru[i, ]
+          dp      <- 100 * r$delta_prob
+          obs_pct <- 100 * r$n_events / max(r$n_trials, 1L)
+          if (abs(dp) < 0.3) {
+            sprintf("Continue monitoring %s (observed rate consistent with assumptions).", r$risk_event)
+          } else if (dp > 0) {
+            sprintf("Increase %s planning probability from %.1f%% to %.1f%%.",
+                    r$risk_event, 100 * r$prior_prob, 100 * r$posterior_mean)
+          } else {
+            sprintf("Planning probability for %s appears conservative — observed rate (%.1f%%) is below prior (%.1f%%).",
+                    r$risk_event, obs_pct, 100 * r$prior_prob)
+          }
+        }))
+      } else character(0)
+    )
+
+    rec_card <- card(
+      class = "mt-3 border-primary",
+      card_header(class = "bg-primary text-white",
+        tags$span(class = "fw-bold", "Recommendation")),
+      card_body(
+        tags$ul(class = "mb-0", lapply(rec_items, tags$li))
+      )
+    )
+
+    # ---- Assemble ------------------------------------------------------------
+    tagList(
+      layout_columns(col_widths = c(6, 6), dur_card, risk_card),
+      badges_card,
+      rec_card
     )
   })
 
