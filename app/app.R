@@ -1507,6 +1507,13 @@ server <- function(input, output, session) {
       else                  list(emoji = "\U1F7E1", label = "Stable",     cls = "bg-secondary text-white")
     }
 
+    # helper: 3-col stat row (Bootstrap grid, no bslib layout_columns)
+    .stat_row <- function(...) {
+      cols <- list(...)
+      tags$div(class = "row g-2 mb-1",
+        lapply(cols, function(x) tags$div(class = "col-4", x)))
+    }
+
     # ---- Duration Learning card ----------------------------------------------
     dur_card <- card(
       card_header(
@@ -1526,31 +1533,20 @@ server <- function(input, output, session) {
           tags$div(
             class = if (i > 1L) "border-top pt-3 mt-2" else "",
             tags$h6(class = "fw-semibold mb-2", r$label),
-            layout_columns(
-              col_widths = c(4, 4, 4),
-              tags$div(
-                tags$div(class = "small text-muted", "Prior mean"),
-                tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$prior_mean))
-              ),
-              tags$div(
-                tags$div(class = "small text-muted", "Updated mean"),
-                tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$posterior_mean))
-              ),
-              tags$div(
-                tags$div(class = "small text-muted", "Change"),
-                tags$div(
-                  class = paste("fw-bold fs-5",
-                    if (abs(pct) < 1) "text-secondary"
-                    else if (pct > 0) "text-danger" else "text-success"),
-                  sprintf("%+.1f%%", pct)
-                )
-              )
+            .stat_row(
+              tags$div(tags$div(class = "small text-muted", "Prior mean"),
+                       tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$prior_mean))),
+              tags$div(tags$div(class = "small text-muted", "Updated mean"),
+                       tags$div(class = "fw-bold fs-5", sprintf("%.3f d", r$posterior_mean))),
+              tags$div(tags$div(class = "small text-muted", "Change"),
+                       tags$div(class = paste("fw-bold fs-5",
+                         if (abs(pct) < 1) "text-secondary"
+                         else if (pct > 0) "text-danger" else "text-success"),
+                         sprintf("%+.1f%%", pct)))
             ),
-            tags$div(
-              class = "mt-1 small",
+            tags$div(class = "mt-1 small",
               tags$span(class = "text-muted", "Confidence: "),
-              tags$span(class = conf_cls, conf_text)
-            )
+              tags$span(class = conf_cls, conf_text))
           )
         }))
       )
@@ -1579,26 +1575,17 @@ server <- function(input, output, session) {
             tags$div(
               class = if (i > 1L) "border-top pt-3 mt-2" else "",
               tags$h6(class = "fw-semibold mb-2", r$risk_event),
-              layout_columns(
-                col_widths = c(4, 4, 4),
-                tags$div(
-                  tags$div(class = "small text-muted", "Prior"),
-                  tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$prior_prob))
-                ),
-                tags$div(
-                  tags$div(class = "small text-muted", "Updated"),
-                  tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$posterior_mean))
-                ),
-                tags$div(
-                  tags$div(class = "small text-muted", "Direction"),
-                  tags$div(class = paste("fw-bold", dir_cls), dir_txt)
-                )
+              .stat_row(
+                tags$div(tags$div(class = "small text-muted", "Prior"),
+                         tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$prior_prob))),
+                tags$div(tags$div(class = "small text-muted", "Updated"),
+                         tags$div(class = "fw-bold fs-5", sprintf("%.1f%%", 100 * r$posterior_mean))),
+                tags$div(tags$div(class = "small text-muted", "Direction"),
+                         tags$div(class = paste("fw-bold", dir_cls), dir_txt))
               ),
-              tags$div(
-                class = "mt-1 small",
+              tags$div(class = "mt-1 small",
                 tags$span(class = "text-muted", "Confidence: "),
-                tags$span(conf_txt)
-              )
+                tags$span(conf_txt))
             )
           }))
         )
@@ -1635,18 +1622,15 @@ server <- function(input, output, session) {
       class = "mt-3",
       card_header(tags$span(class = "fw-bold", "What changed?")),
       card_body(
-        layout_columns(
-          col_widths = c(6, 6),
-          tags$div(
+        tags$div(class = "row g-3",
+          tags$div(class = "col-md-6",
             tags$div(class = "small fw-semibold text-muted mb-1", "Duration parameters"),
-            dur_badge_rows
-          ),
+            dur_badge_rows),
           if (!is.null(ru) && nrow(ru) > 0)
-            tags$div(
+            tags$div(class = "col-md-6",
               tags$div(class = "small fw-semibold text-muted mb-1", "Risk probabilities"),
-              risk_badge_rows
-            )
-          else tags$div()
+              risk_badge_rows)
+          else tags$div(class = "col-md-6")
         )
       )
     )
@@ -1759,24 +1743,21 @@ server <- function(input, output, session) {
       style = "border: 2px solid #0d6efd;",
       card_header(
         class = "bg-light",
-        layout_columns(
-          col_widths = c(8, 4),
-          tags$span(class = "fw-bold", "Campaign Learning Summary"),
-          tags$div(class = "text-end text-muted small",
+        tags$div(class = "row align-items-center",
+          tags$div(class = "col-8", tags$span(class = "fw-bold", "Campaign Learning Summary")),
+          tags$div(class = "col-4 text-end text-muted small",
             sprintf("%d wells analysed", br$n_prior + br$n_new),
             tags$br(),
             sprintf("%d historical + %d new", br$n_prior, br$n_new))
         )
       ),
       card_body(
-        layout_columns(
-          col_widths = c(4, 4, 4),
-          dur_summary_ui,
-          risk_summary_ui,
-          tags$div(
+        tags$div(class = "row g-3",
+          tags$div(class = "col-md-4", dur_summary_ui),
+          tags$div(class = "col-md-4", risk_summary_ui),
+          tags$div(class = "col-md-4",
             tags$div(class = "small text-muted fw-semibold mb-1", "Recommended action:"),
-            tags$div(class = "fw-semibold", action_text)
-          )
+            tags$div(class = "fw-semibold", action_text))
         )
       )
     )
@@ -1784,7 +1765,10 @@ server <- function(input, output, session) {
     # ---- Assemble ------------------------------------------------------------
     tagList(
       summary_card,
-      layout_columns(col_widths = c(6, 6), dur_card, risk_card),
+      tags$div(class = "row g-3 mt-0",
+        tags$div(class = "col-md-6", dur_card),
+        tags$div(class = "col-md-6", risk_card)
+      ),
       badges_card,
       rec_card
     )
