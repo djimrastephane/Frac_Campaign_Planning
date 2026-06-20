@@ -54,5 +54,17 @@ rec2 <- recommend_action(result, sim_args = args, verify = FALSE)
 chk(grepl("ESTIMATED", rec2$basis), "fallback path is analytic")
 chk(rec2$bottleneck == rec$bottleneck, "fallback picks same bottleneck")
 
+# -- Decision thresholds are named and single-sourced (Issue #41)
+chk(REC_DECISION_THRESHOLDS$min_p50_reduction_days == 0.5, "min_p50_reduction_days default is 0.5")
+chk(REC_DECISION_THRESHOLDS$confidence_moderate_win_rate == 0.75, "confidence_moderate_win_rate default is 0.75")
+chk(nchar(rec$decision_reason) > 0, "decision_reason is populated")
+if (rec$decision_status == "Recommended") {
+  chk(grepl("Both gates cleared", rec$decision_reason), "Recommended: decision_reason cites both gates cleared")
+} else if (rec$decision_status == "Optional") {
+  chk(grepl("below the", rec$decision_reason), "Optional: decision_reason cites the confidence shortfall")
+} else {
+  chk(grepl("does not cover|does not clear", rec$decision_reason), "Not justified: decision_reason cites the failing gate")
+}
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

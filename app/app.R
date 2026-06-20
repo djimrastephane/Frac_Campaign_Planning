@@ -331,7 +331,10 @@ ui <- page_sidebar(
              card_body(
                actionButton("verify_rec", "Verify by re-simulation", class = "btn-sm btn-primary mb-2"),
                uiOutput("recommendation_confidence"),
-               verbatimTextOutput("recommendation_panel")))
+               verbatimTextOutput("recommendation_panel"),
+               tags$details(class = "mt-2",
+                 tags$summary(class = "small text-muted", style = "cursor: pointer;", "Decision Rules"),
+                 uiOutput("recommendation_decision_rules"))))
       ),
       layout_columns(
         col_widths = c(6, 6),
@@ -1290,7 +1293,22 @@ server <- function(input, output, session) {
     tagList(
       tags$span(class = paste("badge", verdict_class), rec$decision_status),
       tags$span(class = paste("badge ms-1", badge_class), conf$label),
+      tags$div(class = "small text-muted mt-1", rec$decision_reason),
       tags$ul(class = "mt-2 mb-2 small text-muted", lapply(conf$detail, tags$li))
+    )
+  })
+
+  output$recommendation_decision_rules <- renderUI({
+    th <- REC_DECISION_THRESHOLDS
+    tags$div(class = "small text-muted mt-1",
+      tags$p(class = "mb-1", tags$b("Not justified"), " -- net value is not positive, or P50 reduction is below ",
+             sprintf("%.1f d", th$min_p50_reduction_days), "."),
+      tags$p(class = "mb-1", tags$b("Optional"), " -- net value is positive, but win-rate confidence is below ",
+             sprintf("%.0f%%", 100 * th$confidence_moderate_win_rate), " (Low/Inconclusive)."),
+      tags$p(class = "mb-0", tags$b("Recommended"), " -- net value is positive and win-rate confidence is at least ",
+             sprintf("%.0f%%", 100 * th$confidence_moderate_win_rate), " (Moderate/High)."),
+      tags$p(class = "mb-0 mt-2 fst-italic",
+        "Thresholds are defined once in REC_DECISION_THRESHOLDS (R/recommendations.R) and used directly by recommend_action().")
     )
   })
 

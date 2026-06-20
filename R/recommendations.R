@@ -22,8 +22,30 @@ suppressPackageStartupMessages({ library(dplyr) })
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-.rec_conf_band <- function(p) dplyr::case_when(
-  p >= 0.90 ~ "High", p >= 0.75 ~ "Moderate", p >= 0.60 ~ "Low", TRUE ~ "Inconclusive")
+# ---- Decision thresholds -----------------------------------------------------
+# Single named source for every cutoff recommend_action() uses to turn a
+# re-simulated (or analytic-fallback) schedule/cost comparison into a
+# Recommended / Optional / Not justified verdict. Mirrors the pattern used by
+# BAYES_DECISION_THRESHOLDS in bayesian_updater.R: nothing in the decision
+# path below hardcodes a number outside this list, so the app's "Decision
+# Rules" disclosure can never drift out of sync with the code that actually
+# drives the recommendation.
+REC_DECISION_THRESHOLDS <- list(
+  min_p50_reduction_days = 0.5,   # below this, a "win" is noise, not a real schedule gain
+  confidence_high_win_rate     = 0.90,  # win-rate >= this -> "High" confidence
+  confidence_moderate_win_rate = 0.75,  # win-rate >= this -> "Moderate" confidence
+  confidence_low_win_rate      = 0.60   # win-rate >= this -> "Low" confidence; below -> "Inconclusive"
+)
+
+.rec_conf_band <- function(p) {
+  th <- REC_DECISION_THRESHOLDS
+  dplyr::case_when(
+    p >= th$confidence_high_win_rate     ~ "High",
+    p >= th$confidence_moderate_win_rate ~ "Moderate",
+    p >= th$confidence_low_win_rate      ~ "Low",
+    TRUE                                  ~ "Inconclusive"
+  )
+}
 
 # Maps from engine resource name -> simulate_campaign_detailed() arg + noun + rate.
 .REC_ARG  <- c("Frac fleet"="frac_fleets","Wireline"="wireline_units",
@@ -96,11 +118,13 @@ recommend_action <- function(
   p90_util  <- as.numeric(rnk$p90_utilization[rnk$resource == prim])
   status    <- rnk$status[rnk$resource == prim]
 
-  worthwhile <- ev_net > 0 && delta_p50 > 0.5
+  min_reduction <- REC_DECISION_THRESHOLDS$min_p50_reduction_days
+  worthwhile <- ev_net > 0 && delta_p50 > min_reduction
   conf_band  <- .rec_conf_band(win_rate)
 
   # Three-way verdict: economic gate first, then statistical confidence.
-  #   Not justified - the schedule saving doesn't cover the added unit.
+  #   Not justified - the schedule saving doesn't cover the added unit, or
+  #                   the P50 reduction doesn't clear min_p50_reduction_days.
   #   Optional      - net positive, but win-rate confidence is Low/Inconclusive.
   #   Recommended   - net positive and Moderate/High confidence.
   decision_status <- if (!worthwhile) {
@@ -109,6 +133,22 @@ recommend_action <- function(
     "Optional"
   } else {
     "Recommended"
+  }
+
+  decision_reason <- if (!worthwhile) {
+    if (ev_net <= 0) {
+      sprintf("Net value is %s: %.0f d saved x $%.0fk/d spread does not cover the added %s's standby cost.",
+              .fmt_usd(ev_net), delta_p50, spread_rate / 1000, tolower(noun))
+    } else {
+      sprintf("P50 reduction of %.1f d does not clear the %.1f d minimum to count as a real schedule gain.",
+              delta_p50, min_reduction)
+    }
+  } else if (decision_status == "Optional") {
+    sprintf("Net value is positive (%s), but confidence is only %s (%.0f%% win rate) - below the %.0f%% bar for Recommended.",
+            .fmt_usd(ev_net), conf_band, 100 * win_rate, 100 * REC_DECISION_THRESHOLDS$confidence_moderate_win_rate)
+  } else {
+    sprintf("Net value is positive (%s) with %s confidence (%.0f%% win rate). Both gates cleared.",
+            .fmt_usd(ev_net), conf_band, 100 * win_rate)
   }
 
   action <- if (worthwhile) sprintf("Add 1 %s", noun)
@@ -134,6 +174,7 @@ recommend_action <- function(
     recommendation = action,
     worthwhile = worthwhile,
     decision_status = decision_status,
+    decision_reason = decision_reason,
     bottleneck = prim,
     status = status,
     p90_utilization = p90_util,
