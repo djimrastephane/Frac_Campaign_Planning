@@ -141,6 +141,9 @@ ui <- page_sidebar(
           "If omitted, synthetic baseline data is used (clearly flagged). ",
           "Recommended: 20+ historical wells for calibrated estimates."),
         fileInput("assumption_file", "master_risks_assumptions.csv", accept = ".csv"),
+        fileInput("risk_library_file", "risk_consequence_library.csv (optional)", accept = ".csv"),
+        helpText(class = "text-muted small mt-0",
+          "If omitted, the bundled template is used."),
         tags$hr(class = "my-2"),
         tags$small(class = "fw-bold", "Bayesian update (optional)"),
         fileInput("bayes_new_wells_file", "New campaign wells CSV", accept = ".csv"),
@@ -909,10 +912,14 @@ server <- function(input, output, session) {
         load_historical_wells(input$historical_file$datapath) %>%
           validate_historical_wells()
       }
-      risk_library_path <- file.path(
-        project_root, "data_templates",
-        "risk_consequence_library_template_simple_severity.csv"
-      )
+      risk_library_path <- if (is.null(input$risk_library_file)) {
+        file.path(
+          project_root, "data_templates",
+          "risk_consequence_library_template_simple_severity.csv"
+        )
+      } else {
+        input$risk_library_file$datapath
+      }
       read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
         validate_risk_consequence_library()
 
