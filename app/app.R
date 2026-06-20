@@ -29,6 +29,7 @@ if (basename(getwd()) == "app") {
 
 source(file.path(project_root, "R", "load_inputs.R"))
 source(file.path(project_root, "R", "validate_inputs.R"))
+source(file.path(project_root, "R", "validate_risk_consequence_library.R"))
 source(file.path(project_root, "R", "simulation_engine_fast.R"))
 source(file.path(project_root, "R", "optimiser_parallel.R"))
 source(file.path(project_root, "R", "risk_uncertainty.R"))
@@ -908,6 +909,13 @@ server <- function(input, output, session) {
         load_historical_wells(input$historical_file$datapath) %>%
           validate_historical_wells()
       }
+      risk_library_path <- file.path(
+        project_root, "data_templates",
+        "risk_consequence_library_template_simple_severity.csv"
+      )
+      read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
+        validate_risk_consequence_library()
+
       assumptions <- load_master_assumptions(input$assumption_file$datapath) %>%
         validate_assumptions()
       input_warnings <- c(

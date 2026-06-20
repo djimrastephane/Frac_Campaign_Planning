@@ -1,0 +1,76 @@
+risk_name,category,scope,base_probability,severity,scenario_probability,wireline_runs,ct_days,milling_plugs,testing_days,pump_days,extra_stages,logistics_days,affected_resource,risk_notes,scenario_notes
+Screenout,Treatment,stage,0.05,Minor,0.7,0,0,0,0,0.25,0,0,Multiple,Screenout during treatment.,"Treatment interrupted, review and continue."
+Screenout,Treatment,stage,0.05,Moderate,0.2,1,0,0,0.25,1,1,0,Multiple,Screenout during treatment.,Re-frac or additional perforation required.
+Screenout,Treatment,stage,0.05,Major,0.1,0.5,1,0,0.25,0.25,0,0,Multiple,Screenout during treatment.,CT intervention or cleanout required.
+High treating pressure,Treatment,stage,0.04,Minor,0.7,0,0,0,0,0.15,0,0,Frac Fleet,Higher than expected treating pressure reduces pumping efficiency.,Rate reduction and engineering review.
+High treating pressure,Treatment,stage,0.04,Moderate,0.25,0,0,0,0,0.5,0,0,Frac Fleet,Higher than expected treating pressure reduces pumping efficiency.,Extended treatment time.
+High treating pressure,Treatment,stage,0.04,Major,0.05,0,0,0,0.25,1,0,0,Frac Fleet,Higher than expected treating pressure reduces pumping efficiency.,Treatment redesign or additional diagnostics.
+Plug pressure test failure,Plug and Perf,stage,0.05,Minor,0.7,1,0,0,0.15,0,0,0,Wireline,Plug fails pressure test before pumping.,Reset or troubleshoot plug.
+Plug pressure test failure,Plug and Perf,stage,0.05,Moderate,0.25,1,0.25,0,0.25,0,0,0,Wireline,Plug fails pressure test before pumping.,Additional intervention required.
+Plug pressure test failure,Plug and Perf,stage,0.05,Major,0.05,1,0.5,1,0.25,0,0,0,Wireline,Plug fails pressure test before pumping.,Mill and replace plug.
+Premature plug set,Plug and Perf,stage,0.03,Minor,0.7,1,0,0,0.15,0,0,0,Wireline,Plug sets before planned depth.,Recover and reset.
+Premature plug set,Plug and Perf,stage,0.03,Moderate,0.25,1,0.25,0,0.25,0,0,0,Wireline,Plug sets before planned depth.,Additional wireline and CT support.
+Premature plug set,Plug and Perf,stage,0.03,Major,0.05,1,0.5,1,0.3,0,0,0,Wireline,Plug sets before planned depth.,Milling or major intervention required.
+Perforation gun misfire,Plug and Perf,stage,0.02,Minor,0.8,1,0,0,0,0,0,0,Wireline,Perforating gun fails to fire correctly.,Re-run gun.
+Perforation gun misfire,Plug and Perf,stage,0.02,Moderate,0.18,1,0,0,0.1,0,0,0,Wireline,Perforating gun fails to fire correctly.,Re-run and verify depth correlation.
+Perforation gun misfire,Plug and Perf,stage,0.02,Major,0.02,1,0.25,0,0.25,0,0,0,Wireline,Perforating gun fails to fire correctly.,Stuck gun or recovery support required.
+Isolation plug failure,Plug and Perf,stage,0.03,Minor,0.6,1,0,0,0.2,0,0,0,Milling,Isolation plug fails during operations.,Additional wireline and retest.
+Isolation plug failure,Plug and Perf,stage,0.03,Moderate,0.3,1,0.5,0,0.25,0,0,0,Milling,Isolation plug fails during operations.,CT support and plug replacement.
+Isolation plug failure,Plug and Perf,stage,0.03,Major,0.1,1,0.5,1,0.3,0,0,0,Milling,Isolation plug fails during operations.,Mill and replace plug.
+Frac pump failure,Pumping Equipment,stage,0.04,Minor,0.7,0,0,0,0,0.25,0,0,Frac Fleet,Frac pump failure during pumping operations.,Short repair or pump swap.
+Frac pump failure,Pumping Equipment,stage,0.04,Moderate,0.25,0,0,0,0,1,0,0,Frac Fleet,Frac pump failure during pumping operations.,Extended repair.
+Frac pump failure,Pumping Equipment,stage,0.04,Major,0.05,0,0,0,0,3,0,0,Frac Fleet,Frac pump failure during pumping operations.,Pump replacement or long repair.
+Blender failure,Pumping Equipment,stage,0.02,Minor,0.7,0,0,0,0,0.25,0,0,Frac Fleet,Blender or mixing equipment failure.,Short troubleshooting.
+Blender failure,Pumping Equipment,stage,0.02,Moderate,0.25,0,0,0,0,1,0,0,Frac Fleet,Blender or mixing equipment failure.,Repair delays pumping.
+Blender failure,Pumping Equipment,stage,0.02,Major,0.05,0,0,0,0,2,0,0,Frac Fleet,Blender or mixing equipment failure.,Replacement or major repair.
+High pressure iron leak,Pumping Equipment,stage,0.02,Minor,0.7,0,0,0,0,0.25,0,0,Frac Fleet,Leak or washout in high-pressure iron.,Inspect and repair.
+High pressure iron leak,Pumping Equipment,stage,0.02,Moderate,0.25,0,0,0,0,0.75,0,0,Frac Fleet,Leak or washout in high-pressure iron.,Replace iron section.
+High pressure iron leak,Pumping Equipment,stage,0.02,Major,0.05,0,0,0,0,1.5,0,0,Frac Fleet,Leak or washout in high-pressure iron.,Extended pressure control repair.
+Frac tree pressure test failure,Surface Equipment,well,0.03,Minor,0.7,0,0,0,0.25,0,0,0,Testing,Frac tree or pressure control equipment fails pressure test.,Retest after minor adjustment.
+Frac tree pressure test failure,Surface Equipment,well,0.03,Moderate,0.25,0,0,0,0.5,0,0,0,Testing,Frac tree or pressure control equipment fails pressure test.,Repair and retest.
+Frac tree pressure test failure,Surface Equipment,well,0.03,Major,0.05,0,0,0,1,0,0,0,Testing,Frac tree or pressure control equipment fails pressure test.,Replace component and retest.
+Proppant shortage,Logistics,stage,0.03,Minor,0.6,0,0,0,0,0.25,0,0.25,Logistics,Insufficient proppant available when required.,Short wait for material.
+Proppant shortage,Logistics,stage,0.03,Moderate,0.3,0,0,0,0,0.5,0,1,Logistics,Insufficient proppant available when required.,Supply delay affects operations.
+Proppant shortage,Logistics,stage,0.03,Major,0.1,0,0,0,0,1,0,3,Logistics,Insufficient proppant available when required.,Significant supply disruption.
+Wet proppant,Logistics,stage,0.05,Minor,0.7,0,0,0,0,0.15,0,0,Frac Fleet,Wet proppant slows or disrupts feeding into equipment.,Reduced throughput.
+Wet proppant,Logistics,stage,0.05,Moderate,0.25,0,0,0,0,0.5,0,0.25,Frac Fleet,Wet proppant slows or disrupts feeding into equipment.,Handling delay.
+Wet proppant,Logistics,stage,0.05,Major,0.05,0,0,0,0,0.75,0,1,Frac Fleet,Wet proppant slows or disrupts feeding into equipment.,Material rejected or replacement required.
+Hopper filling delay,Logistics,stage,0.05,Minor,0.7,0,0,0,0,0.1,0,0,Frac Fleet,Delay filling hopper or transferring proppant.,Small feeding delay.
+Hopper filling delay,Logistics,stage,0.05,Moderate,0.25,0,0,0,0,0.3,0,0.25,Frac Fleet,Delay filling hopper or transferring proppant.,Sustained filling delay.
+Hopper filling delay,Logistics,stage,0.05,Major,0.05,0,0,0,0,0.75,0,0.5,Frac Fleet,Delay filling hopper or transferring proppant.,Major handling disruption.
+Forklift failure,Logistics,campaign,0.05,Minor,0.6,0,0,0,0,0.1,0,0.25,Logistics,Forklift unavailable for proppant big-bag handling.,Temporary handling slowdown.
+Forklift failure,Logistics,campaign,0.05,Moderate,0.3,0,0,0,0,0.25,0,1,Logistics,Forklift unavailable for proppant big-bag handling.,Replacement or repair required.
+Forklift failure,Logistics,campaign,0.05,Major,0.1,0,0,0,0,0.5,0,2,Logistics,Forklift unavailable for proppant big-bag handling.,Significant material handling disruption.
+Truck delivery delay,Logistics,campaign,0.08,Minor,0.6,0,0,0,0,0.1,0,0.5,Logistics,"Late delivery of proppant, chemicals, water, or equipment.",Short delivery delay.
+Truck delivery delay,Logistics,campaign,0.08,Moderate,0.3,0,0,0,0,0.25,0,1.5,Logistics,"Late delivery of proppant, chemicals, water, or equipment.",Extended delivery delay.
+Truck delivery delay,Logistics,campaign,0.08,Major,0.1,0,0,0,0,0.5,0,3,Logistics,"Late delivery of proppant, chemicals, water, or equipment.",Major supply-chain delay.
+Water supply interruption,Fluids,campaign,0.05,Minor,0.6,0,0,0,0,0.25,0,0.5,Frac Fleet,Insufficient water supply or transfer interruption.,Short water delay.
+Water supply interruption,Fluids,campaign,0.05,Moderate,0.3,0,0,0,0,0.5,0,1.5,Frac Fleet,Insufficient water supply or transfer interruption.,Reduced pumping availability.
+Water supply interruption,Fluids,campaign,0.05,Major,0.1,0,0,0,0,1,0,3,Frac Fleet,Insufficient water supply or transfer interruption.,Major water logistics issue.
+Chemical shortage,Fluids,campaign,0.04,Minor,0.6,0,0,0,0,0.1,0,0.5,Frac Fleet,Chemical or additive unavailable when required.,Short additive delay.
+Chemical shortage,Fluids,campaign,0.04,Moderate,0.3,0,0,0,0,0.5,0,1,Frac Fleet,Chemical or additive unavailable when required.,Extended supply delay.
+Chemical shortage,Fluids,campaign,0.04,Major,0.1,0,0,0,0,1,0,2,Frac Fleet,Chemical or additive unavailable when required.,Treatment postponed.
+Well not ready for frac,Readiness,well,0.08,Minor,0.6,0,0,0,0,0,0,1,Frac Fleet,Well not available at planned frac start.,Short handover delay.
+Well not ready for frac,Readiness,well,0.08,Moderate,0.3,0,0,0,0,0,0,3,Frac Fleet,Well not available at planned frac start.,Well handover delayed.
+Well not ready for frac,Readiness,well,0.08,Major,0.1,0,0,0,0,0,0,7,Frac Fleet,Well not available at planned frac start.,Major readiness delay.
+Rig release delayed,Readiness,well,0.05,Minor,0.6,0,0,0,0,0,0,1,Frac Fleet,Prior rig activity delays frac readiness.,Short rig release delay.
+Rig release delayed,Readiness,well,0.05,Moderate,0.3,0,0,0,0,0,0,3,Frac Fleet,Prior rig activity delays frac readiness.,Rig release delayed.
+Rig release delayed,Readiness,well,0.05,Major,0.1,0,0,0,0,0,0,7,Frac Fleet,Prior rig activity delays frac readiness.,Major handover issue.
+Wireline unit unavailable,Resources,campaign,0.08,Minor,0.6,0,0,0,0,0,0,0.5,Wireline,Wireline crew or unit not available.,Short crew/unit delay.
+Wireline unit unavailable,Resources,campaign,0.08,Moderate,0.3,0,0,0,0,0,0,2,Wireline,Wireline crew or unit not available.,Replacement crew/unit required.
+Wireline unit unavailable,Resources,campaign,0.08,Major,0.1,0,0,0,0,0,0,5,Wireline,Wireline crew or unit not available.,Major crew/unit availability issue.
+CT unit unavailable,Resources,campaign,0.05,Minor,0.6,0,0,0,0,0,0,0.5,CT,CT spread not available when required.,Short CT delay.
+CT unit unavailable,Resources,campaign,0.05,Moderate,0.3,0,0,0,0,0,0,2,CT,CT spread not available when required.,Alternate CT unit required.
+CT unit unavailable,Resources,campaign,0.05,Major,0.1,0,0,0,0,0,0,5,CT,CT spread not available when required.,Major CT availability issue.
+Testing unit unavailable,Resources,campaign,0.05,Minor,0.6,0,0,0,0.25,0,0,0.5,Testing,Testing or flowback package unavailable.,Short testing delay.
+Testing unit unavailable,Resources,campaign,0.05,Moderate,0.3,0,0,0,1,0,0,2,Testing,Testing or flowback package unavailable.,Alternate testing package required.
+Testing unit unavailable,Resources,campaign,0.05,Major,0.1,0,0,0,3,0,0,5,Testing,Testing or flowback package unavailable.,Major testing availability issue.
+Weather shutdown,Operational,campaign,0.1,Minor,0.6,0,0,0,0,0,0,1,Multiple,Weather interruption affects site operations.,Short weather delay.
+Weather shutdown,Operational,campaign,0.1,Moderate,0.3,0,0,0,0,0,0,3,Multiple,Weather interruption affects site operations.,Multi-day weather delay.
+Weather shutdown,Operational,campaign,0.1,Major,0.1,0,0,0,0,0,0,7,Multiple,Weather interruption affects site operations.,Extended weather shutdown.
+Permit delay,Operational,campaign,0.05,Minor,0.5,0,0,0,0,0,0,1,Multiple,Permit or regulatory approval delay.,Short permit delay.
+Permit delay,Operational,campaign,0.05,Moderate,0.35,0,0,0,0,0,0,5,Multiple,Permit or regulatory approval delay.,Permit delay impacts start.
+Permit delay,Operational,campaign,0.05,Major,0.15,0,0,0,0,0,0,14,Multiple,Permit or regulatory approval delay.,Major regulatory delay.
+SimOps conflict,Operational,campaign,0.05,Minor,0.6,0,0,0,0,0,0,0.5,Multiple,Concurrent operations conflict with frac activity.,Short coordination delay.
+SimOps conflict,Operational,campaign,0.05,Moderate,0.3,0,0,0,0,0,0,1.5,Multiple,Concurrent operations conflict with frac activity.,Operational conflict resolved.
+SimOps conflict,Operational,campaign,0.05,Major,0.1,0,0,0,0,0,0,3,Multiple,Concurrent operations conflict with frac activity.,Extended SimOps conflict.
