@@ -68,6 +68,25 @@ validate_risk_consequence_library <- function(df) {
     }
   }
 
+  # 6. scope must be stage / well / campaign. build_risk_table() (see
+  # R/risk_library_engine.R) feeds this column straight into
+  # compute_adjusted_risk_probability() for any risk that exists ONLY in this
+  # library (no row in master_risks_assumptions.csv); an unrecognised value
+  # there silently falls through to flat, non-compounding scaling with no
+  # error -- exactly the bug class master_risks_assumptions.csv's scope
+  # column is hard-validated against in validate_inputs.R::validate_assumptions().
+  if ("scope" %in% names(df)) {
+    allowed_scope <- c("stage", "well", "campaign")
+    bad_scope <- df[!is.na(df$scope) & trimws(df$scope) != "" &
+                     !tolower(trimws(df$scope)) %in% allowed_scope, ]
+    if (nrow(bad_scope) > 0) {
+      errors <- c(errors, sprintf(
+        "Invalid scope values (must be stage / well / campaign) for: %s",
+        paste(unique(paste0(bad_scope$risk_name, " = '", bad_scope$scope, "'")), collapse = ", ")
+      ))
+    }
+  }
+
   if (length(errors) > 0) {
     stop("Risk consequence library validation failed:\n", paste(errors, collapse = "\n"))
   }

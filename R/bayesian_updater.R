@@ -159,10 +159,18 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
     n_t      <- risk_obs$n_trials[i]
     n_e      <- risk_obs$n_events[i]
 
-    # Match to assumptions (partial, case-insensitive)
+    # Match to assumptions (partial, case-insensitive). fixed() treats both
+    # sides as literal substrings rather than regex patterns -- risk names
+    # routinely contain characters like "(", ")", "." that are regex
+    # metacharacters (e.g. "Plug failure (early)"); without fixed(), a name
+    # with an unbalanced metacharacter throws a hard regex error that
+    # propagates out of bayesian_update_risks() and silently nulls out the
+    # ENTIRE risk update for every row in the upload (caught by the tryCatch
+    # in run_bayesian_update(), surfaced only as a server-side warning()),
+    # not just the row with the offending name.
     match_row <- risk_rows %>%
-      filter(str_detect(tolower(risk_event), tolower(obs_name)) |
-             str_detect(tolower(obs_name), tolower(risk_event))) %>%
+      filter(str_detect(tolower(risk_event), stringr::fixed(tolower(obs_name))) |
+             str_detect(tolower(obs_name), stringr::fixed(tolower(risk_event)))) %>%
       slice_head(n = 1)
 
     matched <- nrow(match_row) > 0
@@ -533,7 +541,13 @@ assess_risk_update <- function(risk_update) {
       # "wrong": a Weak-evidence posterior necessarily stays anchored near
       # the prior, even when the observed frequency looks very different
       # (or, as with 0 events, looks nothing like the posterior at all).
-      sample_caveat = if (evidence_strength == "Weak") sprintf(
+      # !matched takes priority: that prior is a fabricated default, not a
+      # real assumption anchoring anything, so the "stays close to the
+      # prior" framing below would be actively misleading for those rows.
+      sample_caveat = if (!matched) sprintf(
+        "No matching assumption for '%s' -- this prior is a fabricated default, not a real planning assumption.",
+        risk_event
+      ) else if (evidence_strength == "Weak") sprintf(
         "Posterior remains close to the prior because only %s %s available.",
         .scope_unit_label(scope, n_trials),
         if (n_trials == 1) "observation was" else "observations were"

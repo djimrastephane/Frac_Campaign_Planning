@@ -141,5 +141,39 @@ so_bad <- row(ru_bad, "risk_event", "Screen out")
 chk(isTRUE(so_bad$matched), "matched rows in the same batch keep matched = TRUE")
 chk(so_bad$decision == "Update assumption", "matched row's decision is unaffected by an unmatched row elsewhere in the batch")
 
+# -- sample_caveat must not claim an unmatched row's fabricated prior is a
+# real, merely-under-sampled assumption (the "stays close to the prior"
+# framing used for genuine Weak-evidence rows). plot_bayesian_risk_update()
+# renders sample_caveat directly as an in-panel annotation whenever it is
+# non-NA, so this is also what keeps an unmatched risk from appearing in the
+# chart with no warning at all.
+chk(!is.na(unmatched$sample_caveat), "unmatched row gets a non-NA sample_caveat (so the plot annotation fires)")
+chk(grepl("fabricated", unmatched$sample_caveat), "unmatched row's sample_caveat names the prior as fabricated, not merely under-sampled")
+chk(!grepl("remains close to the prior", unmatched$sample_caveat),
+    "unmatched row's sample_caveat does not use the genuine-Weak-evidence 'stays close to prior' framing")
+
+# -- The fuzzy-name match must use literal substring matching, not regex: a
+# risk name containing a regex metacharacter (e.g. an unbalanced paren) must
+# not crash the match -- a crash here is caught by run_bayesian_update()'s
+# tryCatch and silently nulls out EVERY risk in the same upload, not just the
+# offending row.
+ROBS_REGEX <- dplyr::bind_rows(ROBS, tibble::tibble(
+  risk_event = "Plug failure (early", n_trials = 30, n_events = 5
+))
+ASSU_REGEX <- dplyr::bind_rows(ASSU, tibble::tibble(
+  category = "Plug", variable = "Plug failure (early", type = "risk",
+  probability = 0.05, min_days = 0.3, most_likely_days = 0.8, max_days = 2.0,
+  simulation_impact = "replacement plug", scope = "well"
+))
+br_regex <- tryCatch(
+  run_bayesian_update(HW, NW, ASSU_REGEX, ROBS_REGEX, prior_strength = 20),
+  error = function(e) e
+)
+chk(!inherits(br_regex, "error"), "a risk name containing an unbalanced regex metacharacter does not crash the Bayesian update")
+chk(!is.null(br_regex$risk_update) && "Plug failure (early" %in% br_regex$risk_update$risk_event,
+    "the regex-metacharacter risk name still produces a result row")
+chk(!is.null(br_regex$risk_update) && nrow(br_regex$risk_update) == nrow(ROBS_REGEX),
+    "other risks in the same upload are unaffected by the metacharacter name (not all silently nulled out)")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

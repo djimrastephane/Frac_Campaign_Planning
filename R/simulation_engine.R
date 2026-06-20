@@ -1533,13 +1533,22 @@ simulate_campaign_detailed <- function(
   if (ncol(risk_event_log) == 0 || nrow(risk_event_log) == 0) risk_event_log <- empty_risk_event_log()
   resource_utilization <- bind_rows(resource_list)
 
+  # Mirror the scope-aware adjustment used to build risk_table above, so this
+  # audit column matches the probability actually used to draw risk
+  # occurrences (compute_adjusted_risk_probability() compounds stage-scope
+  # risk AFTER the multiplier, not before -- using the old plain
+  # probability * risk_multiplier formula here would silently understate the
+  # displayed/exported value for every stage-scope risk).
   assumptions_used <- assumptions %>%
     mutate(
       risk_multiplier_used = risk_multiplier,
+      .scope_used = if ("scope" %in% names(assumptions)) normalise_text(scope) else "well",
+      .scope_used = ifelse(is.na(.scope_used) | .scope_used == "", "well", .scope_used),
       probability_used = ifelse(normalise_text(type) == "risk",
-                                pmin(as.numeric(probability) * risk_multiplier, 1),
+                                compute_adjusted_risk_probability(probability, .scope_used, risk_multiplier, base_stages),
                                 as.numeric(probability))
-    )
+    ) %>%
+    select(-.scope_used)
 
   list(
     summary = summary,
