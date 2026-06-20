@@ -90,5 +90,24 @@ n_ct <- sum(res_perturbed$risk_event_log$risk_event == "CT unit unavailable")
 # If the engine wrongly used the library's perturbed 0.95, we'd see ~950.
 chk(n_ct < 150, sprintf("'CT unit unavailable' occurrence count (%d / 1000) still tracks assumptions' probability (0.05), not the library's perturbed 0.95", n_ct))
 
+# -- 7. logistics_days reaches both the risk_event_log and the campaign-level
+# delay rollup (PR 2: "Truck delivery delay" has nonzero logistics_days in
+# all three severity tiers: 0.5 / 1.5 / 3).
+res_log <- run(risk_library = LIB, n_iterations = 1000, seed = 33)
+td_log <- res_log$risk_event_log[res_log$risk_event_log$risk_event == "Truck delivery delay", ]
+chk(nrow(td_log) > 0, "'Truck delivery delay' occurred at least once (sanity check)")
+chk(sum(td_log$extra_logistics_days) > 0, "'Truck delivery delay' events carry nonzero extra_logistics_days in the risk_event_log")
+chk(sum(res_log$summary$total_induced_logistics_days, na.rm = TRUE) > 0,
+    "total_induced_logistics_days is positive in the campaign summary rollup")
+
+# Removing the logistics consequence should lower total_frac_workload_days by
+# exactly that amount, confirming it reaches the delay rollup, not just the log.
+LIB_NO_LOGISTICS <- LIB
+LIB_NO_LOGISTICS$logistics_days <- 0
+res_no_log <- run(risk_library = LIB_NO_LOGISTICS, n_iterations = 1000, seed = 33)
+workload_diff <- sum(res_log$summary$total_frac_workload_days) - sum(res_no_log$summary$total_frac_workload_days)
+chk(isTRUE(all.equal(workload_diff, sum(res_log$summary$total_induced_logistics_days), tolerance = 1e-6)),
+    sprintf("zeroing logistics_days lowers total_frac_workload_days by exactly the induced-logistics total (diff=%.3f)", workload_diff))
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

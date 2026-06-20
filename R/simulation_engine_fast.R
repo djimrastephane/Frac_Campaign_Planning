@@ -413,7 +413,7 @@ empty_risk_event_log <- function() {
     extra_milling_plugs = numeric(), extra_milling_days = numeric(), extra_testing_days = numeric(),
     extra_frac_days = numeric(),
     min_delay_days = numeric(), most_likely_delay_days = numeric(), max_delay_days = numeric(),
-    simulation_impact = character(), severity = character()
+    simulation_impact = character(), severity = character(), extra_logistics_days = numeric()
   )
 }
 
@@ -423,7 +423,7 @@ empty_risk_event_log <- function() {
 # workload is accumulated alongside the direct delay.
 SUM_COLS <- c("frac", "wireline", "ct", "milling", "external", "total",
               "plugs", "stages", "wl_runs", "wl_run_days", "ct_x",
-              "mill_x_plugs", "test_x", "frac_x")
+              "mill_x_plugs", "test_x", "frac_x", "logistics_x")
 
 empty_sums_matrix <- function(n_wells) {
   matrix(0, nrow = n_wells, ncol = length(SUM_COLS),
@@ -542,8 +542,15 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
 
     lib_extra_stages <- lib_val("extra_stages")
     extra_stages_lib <- ifelse(is.na(lib_extra_stages), 0, lib_extra_stages)
+
+    # logistics_days has no master_risks_assumptions.csv override column (that
+    # file predates this concept), so it's library value or zero -- no 3-way
+    # precedence to resolve, unlike the 5 fields above.
+    lib_logistics_days <- lib_val("logistics_days")
+    c_logistics_days <- ifelse(is.na(lib_logistics_days), 0, lib_logistics_days)
   } else {
     extra_stages_lib <- rep(0, n_occ)
+    c_logistics_days <- rep(0, n_occ)
   }
   c_wl_days <- c_wl_runs * wireline_run_days
   c_mill_days <- c_mill_plugs * well_df$milling_days_per_plug[w]
@@ -579,6 +586,7 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
   sums <- accumulate_into(sums, "mill_x_plugs",w, c_mill_plugs)
   sums <- accumulate_into(sums, "test_x",      w, c_test_days)
   sums <- accumulate_into(sums, "frac_x",      w, c_frac_days)
+  sums <- accumulate_into(sums, "logistics_x", w, c_logistics_days)
 
   # risk_log is a pure output artifact (no random draws here), so skipping it
   # when the caller does not need it changes nothing numerically and leaves the
@@ -611,7 +619,8 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
     most_likely_delay_days = grid$most_likely_days[occurs],
     max_delay_days = grid$max_days[occurs],
     simulation_impact = grid$simulation_impact[occurs],
-    severity = severity_event
+    severity = severity_event,
+    extra_logistics_days = c_logistics_days
   )
 
   list(risk_log = risk_log, sums = sums)
@@ -1281,7 +1290,11 @@ simulate_campaign_detailed <- function(
         wireline_risk_delay_days = s[, "wireline"],
         ct_risk_delay_days = s[, "ct"],
         milling_risk_delay_days = s[, "milling"],
-        external_risk_delay_days = s[, "external"],
+        # Logistics consequence days have no dedicated fleet, so they're
+        # folded into the external bucket (same treatment as weather/permit
+        # delays) while remaining separately reportable via logistics_consequence_days.
+        external_risk_delay_days = s[, "external"] + s[, "logistics_x"],
+        logistics_consequence_days = s[, "logistics_x"],
         risk_delay_days = s[, "total"],
         extra_plugs = s[, "plugs"],
         extra_stages = s[, "stages"],
@@ -1552,7 +1565,8 @@ simulate_campaign_detailed <- function(
       milling_completion_day = milling_completion_day,
       testing_completion_day = testing_completion_day,
       frac_tree_efficiency_factor = tree_efficiency_factor,
-      estimated_campaign_days = estimated_campaign_days
+      estimated_campaign_days = estimated_campaign_days,
+      total_induced_logistics_days = sum(well_df$logistics_consequence_days, na.rm = TRUE)
     )
 
     resource_workload <- c(
