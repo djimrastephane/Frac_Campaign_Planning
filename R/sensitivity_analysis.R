@@ -31,7 +31,7 @@ suppressPackageStartupMessages({
   wireline_contingency_pct      = list(label = "Wireline contingency %",    category = "Timing"),
   pad_to_pad_move_hours         = list(label = "Pad-to-pad move time",      category = "Timing"),
   well_to_well_transition_hours = list(label = "Well-to-well transition",   category = "Timing"),
-  risk_multiplier               = list(label = "Risk multiplier (all)",     category = "Risk"),
+  risk_multiplier               = list(label = "Risk frequency multiplier (all)", category = "Risk"),
   zipper_efficiency             = list(label = "Zipper efficiency factor",  category = "Operations"),
   ct_milling_efficiency         = list(label = "CT milling efficiency",     category = "Operations")
 )

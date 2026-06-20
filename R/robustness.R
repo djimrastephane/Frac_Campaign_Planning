@@ -25,7 +25,7 @@ suppressPackageStartupMessages({
 ROBUSTNESS_LABELS <- c(
   frac_time_per_stage_hours     = "Frac stage cycle time (hrs)",
   wireline_time_per_stage_hours = "Wireline stage time (hrs)",
-  risk_multiplier                = "Risk multiplier",
+  risk_multiplier                = "Risk frequency multiplier",
   zipper_efficiency               = "Zipper efficiency factor",
   wireline_contingency_pct         = "Wireline contingency (%)"
 )

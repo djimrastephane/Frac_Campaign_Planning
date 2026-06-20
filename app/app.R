@@ -170,7 +170,8 @@ ui <- page_sidebar(
         helpText("Fast: 300 runs, no per-well audit detail. Standard: 1,000 runs. Audit: 2,000 runs with full traceability."),
         numericInput("n_iter", "Simulation runs", value = 1000, min = 100, max = 10000, step = 100),
         numericInput("seed", "Simulation seed", value = 123, min = 1, max = 999999, step = 1),
-        sliderInput("risk_multiplier", "Risk multiplier", min = 0.25, max = 3, value = 1, step = 0.25),
+        sliderInput("risk_multiplier", "Risk frequency multiplier", min = 0.25, max = 3, value = 1, step = 0.25),
+        helpText("Scales how often risk events occur. It does not change consequence severity once a risk occurs."),
         numericInput("target_days", "Target duration (days, optional)", value = NA, min = 1, step = 1),
         numericInput("budget", "Budget ceiling ($, optional)", value = NA, min = 0, step = 1000000)
       ),

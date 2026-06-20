@@ -59,6 +59,24 @@ normalise_text <- function(x) {
   str_squish(str_to_lower(as.character(x)))
 }
 
+# Applies risk_multiplier as a *frequency* scalar (it never touches consequence
+# severity/workload). The multiplier always scales the base, per-occurrence
+# probability first; for stage-scope risks that means the per-stage probability
+# is scaled BEFORE compounding across stages, not after. Scaling the already-
+# compounded per-well probability (the old behaviour) over-amplifies stage-scope
+# risks, since compounding is non-linear.
+#   stage    : p_stage_adj = min(probability * risk_multiplier, 1)
+#              adjusted    = 1 - (1 - p_stage_adj)^n_stages
+#   well     : adjusted    = min(probability * risk_multiplier, 1)
+#   campaign : adjusted    = min(probability * risk_multiplier, 1)  (single Bernoulli draw)
+# NA probability -> 0.
+compute_adjusted_risk_probability <- function(probability, scope, risk_multiplier, n_stages) {
+  probability <- as.numeric(probability)
+  p_adj <- pmin(probability * risk_multiplier, 1)
+  adjusted <- ifelse(scope == "stage", 1 - (1 - p_adj)^n_stages, p_adj)
+  ifelse(is.na(adjusted), 0, adjusted)
+}
+
 triangle_sample <- function(min_val, mode_val, max_val, n = 1) {
   min_val <- rep(as.numeric(min_val), length.out = n)
   mode_val <- rep(as.numeric(mode_val), length.out = n)
@@ -1096,21 +1114,14 @@ simulate_campaign_detailed <- function(
     mutate(
       .scope = if ("scope" %in% names(.)) normalise_text(scope) else "well",
       .scope = ifelse(is.na(.scope) | .scope == "", "well", .scope),
-      # Stage-scope: convert per-stage probability to effective per-well probability
-      .eff_prob_well = case_when(
-        .scope == "stage" ~ 1 - (1 - pmin(as.numeric(probability), 1))^base_stages,
-        .scope == "campaign" ~ as.numeric(probability),  # handled separately in draw
-        TRUE ~ as.numeric(probability)  # "well" scope
-      ),
-      adjusted_probability = pmin(.eff_prob_well * risk_multiplier, 1),
-      adjusted_probability = ifelse(is.na(adjusted_probability), 0, adjusted_probability),
+      adjusted_probability = compute_adjusted_risk_probability(probability, .scope, risk_multiplier, base_stages),
       is_campaign_scope = .scope == "campaign",
       adds_plug = !is.na(simulation_impact) & str_detect(normalise_text(simulation_impact), "plug"),
       adds_stage = !is.na(simulation_impact) & str_detect(normalise_text(simulation_impact), "extra stage|additional stage|re-frac|refrac|lost stage|screen out"),
       resource_class = risk_resource_class(category, variable),
       risk_event = as.character(variable)
     ) %>%
-    select(-.scope, -.eff_prob_well) %>%
+    select(-.scope) %>%
     derive_risk_consequences()
 
   risk_grid <- build_risk_grid(risk_table, n_wells)

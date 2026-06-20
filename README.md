@@ -333,6 +333,12 @@ Default consequence library (per occurred event, overridable per-risk via CSV):
 - `well`: independent probability per well. Use for well-level events (surface equipment failure).
 - `campaign`: single Bernoulli draw for the whole campaign. Use for crew absences, weather, permits — events that affect the whole operation, not each well independently. This prevents the structural error of treating a crew walkout as 30 independent per-well events.
 
+**Risk frequency multiplier** (Scenario sidebar, 0.25–3.0, default 1.0): a global scalar that scales how often risk events occur. It does not change consequence severity (days/resource impact once a risk fires) — only its probability of firing. The multiplier is applied to the *base* probability first, then scope conversion happens on top of the scaled value:
+- `stage`: scale per-stage probability first, then compound across stages — `p_stage_adj = min(p × multiplier, 1)`, `adjusted = 1 - (1 - p_stage_adj)^n_stages`.
+- `well` / `campaign`: scale directly — `adjusted = min(p × multiplier, 1)`.
+
+Scaling before compounding matters: scaling the already-compounded per-well probability instead would over-amplify stage-scope risks (e.g. screenout), since compounding is non-linear. Use the multiplier to stress-test a single what-if scenario (e.g. 2x for a higher-risk pad, 0.5x for a mature/low-risk area) without editing the assumptions CSV. This is distinct from the Sensitivity Analysis Engine's ±50% OAT sweep, which perturbs each risk probability one at a time to rank sensitivity rather than scale all risks together for a single run.
+
 ---
 
 ## Campaign Duration Formula
