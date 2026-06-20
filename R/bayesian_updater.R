@@ -131,8 +131,17 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
   risk_col <- if ("variable" %in% names(assumptions)) "variable" else "variable / risk event"
   risk_rows <- assumptions %>%
     filter(!is.na(probability), tolower(type) == "risk") %>%
-    select(risk_event = all_of(risk_col), prior_prob = probability) %>%
-    mutate(prior_prob = as.numeric(prior_prob))
+    mutate(prior_prob = as.numeric(probability))
+  # scope (stage/well/campaign) drives which opportunities are comparable --
+  # same convention as simulation_engine_fast.R: default to "well" when the
+  # column is missing or blank.
+  if ("scope" %in% names(risk_rows)) {
+    risk_rows$scope <- tolower(trimws(risk_rows$scope))
+    risk_rows$scope[is.na(risk_rows$scope) | risk_rows$scope == ""] <- "well"
+  } else {
+    risk_rows$scope <- "well"
+  }
+  risk_rows <- risk_rows %>% select(risk_event = all_of(risk_col), prior_prob, scope)
 
   risk_obs <- risk_obs %>%
     mutate(
@@ -154,6 +163,7 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
 
     p0 <- if (nrow(match_row) > 0) match_row$prior_prob else 0.05
     p0 <- pmax(0.001, pmin(0.999, p0))
+    scope0 <- if (nrow(match_row) > 0) match_row$scope else "well"
 
     # Jeffreys-adjusted Beta prior
     alpha0 <- p0 * prior_strength + 0.5
@@ -166,6 +176,7 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
 
     tibble(
       risk_event    = obs_name,
+      scope         = scope0,
       prior_prob    = p0,
       alpha_prior   = alpha0,
       beta_prior    = beta0,
@@ -307,6 +318,14 @@ BAYES_DECISION_THRESHOLDS <- list(
 }
 
 .cap1 <- function(s) paste0(toupper(substring(s, 1, 1)), substring(s, 2))
+
+#' Human-readable sample-size label that names the opportunity unit implied
+#' by a risk's scope ("53 stages", "1 campaign", "4 wells") -- prevents a
+#' bare trial count from being read as if all risks shared the same unit.
+.scope_unit_label <- function(scope, n) {
+  unit <- switch(tolower(scope), stage = "stage", campaign = "campaign", "well")
+  sprintf("%d %s%s", n, unit, if (n == 1) "" else "s")
+}
 
 #' Classify a duration_update tibble (output of bayesian_update_durations())
 #' with evidence strength, a Stable/Meaningful-change statistical decision,
@@ -495,6 +514,15 @@ assess_risk_update <- function(risk_update) {
       ),
       narrative_posterior = sprintf(
         "The Bayesian posterior estimate shifted from %.1f%% to %.1f%%.", 100 * prior_prob, 100 * posterior_mean),
+      # Explains the counterintuitive case an engineer will otherwise flag as
+      # "wrong": a Weak-evidence posterior necessarily stays anchored near
+      # the prior, even when the observed frequency looks very different
+      # (or, as with 0 events, looks nothing like the posterior at all).
+      sample_caveat = if (evidence_strength == "Weak") sprintf(
+        "Posterior remains close to the prior because only %s %s available.",
+        .scope_unit_label(scope, n_trials),
+        if (n_trials == 1) "observation was" else "observations were"
+      ) else NA_character_,
       narrative_interpretation = dplyr::case_when(
         evidence_strength == "Weak" ~
           sprintf("Insufficient evidence to conclude a change in %s frequency.", tolower(risk_event)),

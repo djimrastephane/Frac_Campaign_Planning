@@ -238,7 +238,11 @@ plot_bayesian_duration_update <- function(bayesian, historical_wells, new_wells 
 }
 
 # Beta density curves for prior and posterior risk probabilities.
-# `risk_update` is the tibble from bayesian_update_risks().
+# `risk_update` must be the ASSESSED tibble (output of assess_risk_update()),
+# not the raw bayesian_update_risks() output -- assess_risk_update() is a
+# strict additive superset (rowwise mutate, never drops columns), and this
+# function needs the extra observed_freq / scope / sample_caveat columns it
+# adds to plot the observed-frequency line and the per-facet annotations.
 plot_bayesian_risk_update <- function(risk_update) {
   if (is.null(risk_update) || nrow(risk_update) == 0) {
     return(ggplot() +
@@ -269,8 +273,24 @@ plot_bayesian_risk_update <- function(risk_update) {
     row <- top[i, ]
     bind_rows(
       tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$prior_prob,     curve = "Prior"),
-      tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$posterior_mean, curve = "Posterior")
+      tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$posterior_mean, curve = "Posterior"),
+      if (row$n_trials > 0) tibble(risk = wrap_lbl(row$risk_event, 22), xint = row$observed_freq, curve = "Observed")
     )
+  }))
+
+  # Per-facet corner annotations: sample-size badge (always) + the
+  # prior-anchoring caveat (only for Weak-evidence rows) -- placed inside the
+  # panel itself so the explanation survives static exports (PDF/audit zip),
+  # not just the interactive Shiny view.
+  badge_df <- bind_rows(lapply(seq_len(nrow(top)), function(i) {
+    row <- top[i, ]
+    tibble(risk = wrap_lbl(row$risk_event, 22),
+           label = sprintf("n = %s", .scope_unit_label(row$scope, row$n_trials)))
+  }))
+  caveat_df <- bind_rows(lapply(seq_len(nrow(top)), function(i) {
+    row <- top[i, ]
+    if (is.na(row$sample_caveat)) return(NULL)
+    tibble(risk = wrap_lbl(row$risk_event, 22), label = wrap_lbl(row$sample_caveat, 36))
   }))
 
   # Single row when there are few panels (avoids squeezing 4-6 facets into
@@ -278,21 +298,31 @@ plot_bayesian_risk_update <- function(risk_update) {
   n_panels <- length(unique(curve_df$risk))
   facet_ncol <- if (n_panels <= 4) n_panels else 3
 
-  ggplot(curve_df, aes(x = x, y = density, colour = curve)) +
+  p <- ggplot(curve_df, aes(x = x, y = density, colour = curve)) +
     geom_line(linewidth = 1.0) +
-    geom_vline(data = ref_df, aes(xintercept = xint, colour = curve),
-               linetype = "dashed", linewidth = 0.5, show.legend = FALSE) +
-    scale_colour_manual(values = c("Prior" = "#0072B2", "Posterior" = "#E69F00"), name = NULL) +
+    geom_vline(data = ref_df, aes(xintercept = xint, colour = curve, linetype = curve),
+               linewidth = 0.5, show.legend = FALSE) +
+    geom_text(data = badge_df, aes(x = Inf, y = Inf, label = label),
+              inherit.aes = FALSE, hjust = 1.05, vjust = 1.4, size = 3, colour = "grey30") +
+    scale_colour_manual(values = c("Prior" = "#0072B2", "Posterior" = "#E69F00", "Observed" = "#D55E00"), name = NULL) +
+    scale_linetype_manual(values = c("Prior" = "dashed", "Posterior" = "dashed", "Observed" = "dotted"), guide = "none") +
     scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +
     scale_y_continuous(breaks = scales::pretty_breaks(n = 3)) +
     facet_wrap(~ risk, scales = "free", ncol = facet_ncol) +
     labs(
-      title    = "Bayesian risk probability update — prior vs posterior",
-      subtitle = "Dashed = prior / posterior mean probability",
+      title    = "Bayesian risk probability update — prior vs posterior vs observed",
+      subtitle = "Dashed = prior / posterior mean. Dotted red = observed frequency.",
       x = "Event probability",
       y = "Beta density"
     ) +
     theme_frac(legend = "bottom")
+
+  if (nrow(caveat_df) > 0) {
+    p <- p + geom_text(data = caveat_df, aes(x = Inf, y = Inf, label = label),
+                        inherit.aes = FALSE, hjust = 1.02, vjust = 4.2, size = 2.4,
+                        colour = "grey45", fontface = "italic", lineheight = 0.85)
+  }
+  p
 }
 
 # ---- What-If Scenario Builder (Issue #11) -----------------------------------

@@ -91,5 +91,31 @@ chk(!any(dur$decision == "Monitor"), "duration decisions never use the risk-only
 chk(all(dur$decision %in% c("Retain assumption", "Review assumption", "Update assumption")),
     "duration decisions are one of the three documented labels")
 
+# -- scope is attached to every risk_update row, and drives the chart/table
+# split into stage/well/campaign sections.
+chk(all(!is.na(ru$scope)), "every risk_update row has a non-NA scope")
+chk(so$scope == "stage", "Screen out: scope is stage")
+chk(pp$scope == "stage", "Plug pressure test failure: scope is stage")
+chk(wl$scope == "campaign", "Wireline crew unavailable: scope is campaign")
+chk(wd$scope == "campaign", "Weather delay: scope is campaign")
+
+# -- sample_caveat explains the prior-anchoring effect (issue: "why did the
+# probability move if [almost] nothing was observed") -- present only for
+# Weak-evidence rows, absent for Moderate/Strong.
+chk(is.na(so$sample_caveat), "Screen out (Moderate evidence): no sample_caveat")
+chk(is.na(pp$sample_caveat), "Plug pressure test failure (Moderate evidence): no sample_caveat")
+chk(!is.na(wl$sample_caveat) && grepl("only 1 campaign", wl$sample_caveat),
+    "Wireline crew unavailable (Weak evidence): sample_caveat names the 1-campaign sample")
+chk(!is.na(wd$sample_caveat) && grepl("only 1 campaign", wd$sample_caveat),
+    "Weather delay (Weak evidence): sample_caveat names the 1-campaign sample")
+
+# -- .scope_unit_label() pluralizes correctly for all 3 scopes, 1 vs N.
+chk(.scope_unit_label("stage", 1) == "1 stage", ".scope_unit_label: singular stage")
+chk(.scope_unit_label("stage", 53) == "53 stages", ".scope_unit_label: plural stages")
+chk(.scope_unit_label("well", 1) == "1 well", ".scope_unit_label: singular well")
+chk(.scope_unit_label("well", 4) == "4 wells", ".scope_unit_label: plural wells")
+chk(.scope_unit_label("campaign", 1) == "1 campaign", ".scope_unit_label: singular campaign")
+chk(.scope_unit_label("campaign", 3) == "3 campaigns", ".scope_unit_label: plural campaigns")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

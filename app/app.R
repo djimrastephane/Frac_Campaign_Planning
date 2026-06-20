@@ -503,32 +503,57 @@ ui <- page_sidebar(
               "Blue = prior (historical wells). Gold = posterior (updated). Dashed = P50."))
         )
       ),
+      # Risk-probability updating is split into one section per `scope`
+      # (stage / well / campaign): a stage-scope opportunity count (e.g. 53
+      # stages) is not the same unit as a campaign-scope one (e.g. 1
+      # campaign), so mixing them in one chart/table invites an invalid
+      # direct comparison. Each section is only as tall as it needs to be --
+      # render_risk_scope_section() (defined in the server) returns a muted
+      # placeholder instead of an empty plot/table when a scope has no rows.
       layout_columns(
         col_widths = c(12),
         card(
           full_screen = TRUE,
-          card_header("Risk probability update — prior vs posterior"),
-          card_body(plotOutput("bayes_risk_plot", height = "340px")),
+          card_header("Stage-level risk update (opportunities = stages)"),
+          card_body(plotOutput("bayes_risk_plot_stage", height = "320px")),
           card_footer(
-            tags$small(class = "text-muted d-block", tags$b("Decision: "),
-              "Checks whether historical risk-probability assumptions should be updated for future planning."),
-            uiOutput("bayes_risk_interp"),
+            uiOutput("bayes_risk_interp_stage"),
             tags$small(class = "text-muted mt-1 d-block",
-              "Blue = prior (assumptions CSV). Gold = posterior (updated with observed counts). Dashed = mean probability."))
+              "Blue = prior. Gold = posterior. Red dotted = observed frequency. ",
+              "\"n\" badge shows the opportunity count and its unit."))
         )
       ),
       layout_columns(
-        col_widths = c(6, 6),
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Well-level risk update (opportunities = wells)"),
+          card_body(plotOutput("bayes_risk_plot_well", height = "320px")),
+          card_footer(uiOutput("bayes_risk_interp_well"))
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Campaign-level risk update (opportunities = campaigns)"),
+          card_body(plotOutput("bayes_risk_plot_campaign", height = "320px")),
+          card_footer(uiOutput("bayes_risk_interp_campaign"))
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
         card(
           full_screen = TRUE,
           card_header("Duration parameter summary"),
           card_body(DT::DTOutput("bayes_duration_table"))
-        ),
-        card(
-          full_screen = TRUE,
-          card_header("Risk probability summary"),
-          card_body(DT::DTOutput("bayes_risk_table"))
         )
+      ),
+      layout_columns(
+        col_widths = c(4, 4, 4),
+        card(card_header("Stage-level risk summary"), card_body(DT::DTOutput("bayes_risk_table_stage"))),
+        card(card_header("Well-level risk summary"), card_body(DT::DTOutput("bayes_risk_table_well"))),
+        card(card_header("Campaign-level risk summary"), card_body(DT::DTOutput("bayes_risk_table_campaign")))
       )
     ),
 
@@ -1936,49 +1961,76 @@ server <- function(input, output, session) {
     tags$p(class = "small text-primary mb-0 fw-semibold", paste(dur$narrative_full, collapse = " "))
   })
 
-  output$bayes_risk_interp <- renderUI({
-    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
-    if (is.null(br) || is.null(br$risk_update) || nrow(br$risk_update) == 0) return(NULL)
-    ru <- assess_risk_update(br$risk_update)
-    tags$p(class = "small text-primary mb-0 fw-semibold", paste(ru$narrative_full, collapse = " "))
-  })
+  # Shared body for the 3 scope-gated risk sections (stage/well/campaign) --
+  # factored into one helper instead of tripling the table-formatting code,
+  # called once per scope below. `scope_filter` matches the `scope` column
+  # added to bayesian_update_risks()'s output (R/bayesian_updater.R).
+  render_risk_scope_section <- function(scope_filter) {
+    ru_all_r <- reactive({
+      br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+      if (is.null(br) || is.null(br$risk_update) || nrow(br$risk_update) == 0) return(NULL)
+      assess_risk_update(br$risk_update)
+    })
+    ru_r <- reactive({
+      ru <- ru_all_r()
+      if (is.null(ru)) return(NULL)
+      ru %>% filter(scope == scope_filter)
+    })
 
-  output$bayes_risk_plot <- renderPlot({
-    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
-    plot_bayesian_risk_update(br$risk_update)
-  }, res = 96)
+    list(
+      interp = renderUI({
+        ru <- ru_r()
+        if (is.null(ru) || nrow(ru) == 0) {
+          return(tags$p(class = "small text-muted mb-0",
+            sprintf("No %s-level risk observations in this dataset.", scope_filter)))
+        }
+        tags$p(class = "small text-primary mb-0 fw-semibold", paste(ru$narrative_full, collapse = " "))
+      }),
+      plot = renderPlot({
+        plot_bayesian_risk_update(ru_r())
+      }, res = 96),
+      table = DT::renderDT({
+        ru <- ru_r()
+        if (is.null(ru) || nrow(ru) == 0)
+          return(DT::datatable(
+            tibble(Note = sprintf("No %s-level risk observations in this dataset.", scope_filter)),
+            rownames = FALSE, options = list(dom = "t")))
+        df <- ru %>%
+          transmute(
+            `Risk event`      = risk_event,
+            `Sample`          = mapply(.scope_unit_label, scope, n_trials),
+            `Prior prob.`     = sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
+            `Events`          = n_events,
+            `Observed freq.`  = sprintf("%.1f%%", 100 * observed_freq),
+            `Post. mean`      = sprintf("%.3f (%.1f%%)", posterior_mean, 100 * posterior_mean),
+            `Post. 90% CI`    = sprintf("[%.3f, %.3f]", posterior_p05, posterior_p95),
+            `Shift`           = sprintf("%+.4f", delta_prob),
+            `Relative shift`  = sprintf("%.0f%%", 100 * rel_change),
+            Evidence          = evidence_strength,
+            Decision          = decision,
+            `Decision Reason` = decision_reason
+          )
+        DT::datatable(df, rownames = FALSE,
+                      options = list(dom = "t", scrollX = TRUE)) %>%
+          DT::formatStyle("Shift",
+            color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00"))) %>%
+          DT::formatStyle("Decision",
+            backgroundColor = DT::styleEqual(
+              c("No action", "Monitor", "Update assumption"),
+              c("#d4edda", "#fff3cd", "#f8d7da")))
+      })
+    )
+  }
 
-  output$bayes_risk_table <- DT::renderDT({
-    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
-    ru <- br$risk_update
-    if (is.null(ru) || nrow(ru) == 0)
-      return(DT::datatable(
-        tibble(Note = "Upload risk observations CSV to see Beta-Binomial risk updates."),
-        rownames = FALSE, options = list(dom = "t")))
-    df <- assess_risk_update(ru) %>%
-      transmute(
-        `Risk event`      = risk_event,
-        `Prior prob.`     = sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
-        `Trials`          = n_trials,
-        `Events`          = n_events,
-        `Observed freq.`  = sprintf("%.1f%%", 100 * observed_freq),
-        `Post. mean`      = sprintf("%.3f (%.1f%%)", posterior_mean, 100 * posterior_mean),
-        `Post. 90% CI`    = sprintf("[%.3f, %.3f]", posterior_p05, posterior_p95),
-        `Shift`           = sprintf("%+.4f", delta_prob),
-        `Relative shift`  = sprintf("%.0f%%", 100 * rel_change),
-        Evidence          = evidence_strength,
-        Decision          = decision,
-        `Decision Reason` = decision_reason
-      )
-    DT::datatable(df, rownames = FALSE,
-                  options = list(dom = "t", scrollX = TRUE)) %>%
-      DT::formatStyle("Shift",
-        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00"))) %>%
-      DT::formatStyle("Decision",
-        backgroundColor = DT::styleEqual(
-          c("No action", "Monitor", "Update assumption"),
-          c("#d4edda", "#fff3cd", "#f8d7da")))
-  })
+  for (sc in c("stage", "well", "campaign")) {
+    local({
+      scope_local <- sc
+      section <- render_risk_scope_section(scope_local)
+      output[[paste0("bayes_risk_interp_", scope_local)]] <- section$interp
+      output[[paste0("bayes_risk_plot_", scope_local)]]   <- section$plot
+      output[[paste0("bayes_risk_table_", scope_local)]]  <- section$table
+    })
+  }
 
   # Apply: merge new wells into the bootstrap pool used by the simulation.
   observeEvent(input$bayes_apply, {

@@ -331,7 +331,8 @@ build_bayesian_decision_page <- function(file, bayesian_decision) {
 
   if (!is.null(risk) && nrow(risk) > 0) {
     risk_tbl <- risk %>% transmute(
-      Event = risk_event, `Prior` = sprintf("%.1f%%", 100 * prior_prob),
+      Event = risk_event, Scope = scope,
+      `Prior` = sprintf("%.1f%%", 100 * prior_prob),
       `Updated` = sprintf("%.1f%%", 100 * posterior_mean),
       `Change` = sprintf("%+.1fpp", 100 * delta_prob),
       Evidence = evidence_strength, Decision = decision)
