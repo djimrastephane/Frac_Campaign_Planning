@@ -1767,12 +1767,22 @@ server <- function(input, output, session) {
             "this stops a modest move on a larger base rate from being treated the same as a large move on a small one"),
           tags$li("Moderate or Strong evidence")
         ),
+        tags$p(class = "mb-1 mt-2", tags$b("Monitor"), " (risk events) -- a positive shift that doesn't clear the Update bar above:"),
+        tags$ul(
+          tags$li(sprintf("Moderate evidence: any shift that isn't negligible is flagged for monitoring")),
+          tags$li(sprintf("Weak evidence: still needs ≥ %.0f%% relative shift to be worth watching, otherwise it's treated as noise ('No action')",
+                          100 * th$min_relative_shift_for_monitor))
+        ),
         tags$p(class = "mb-1 mt-2", tags$b("Evidence strength"), " is driven by sample size:"),
         tags$ul(
-          tags$li(sprintf("Strong: ≥ %d observations, AND a narrow posterior credible interval, AND a direction that isn't just prior-anchoring noise", th$min_n_for_strong_evidence)),
+          tags$li(sprintf("Strong: ≥ %d observations, AND a narrow posterior credible interval (duration: 90%% CI width < %.0f%% of the prior mean; risk: 90%% CI width < %.0f percentage points), AND a direction that isn't just prior-anchoring noise",
+                          th$min_n_for_strong_evidence, 100 * th$duration_ci_narrow_rel, 100 * th$risk_ci_narrow_pp)),
           tags$li(sprintf("Moderate: ≥ %d observations", th$min_n_for_moderate_evidence)),
           tags$li(sprintf("Weak: < %d observations", th$min_n_for_moderate_evidence))
         ),
+        tags$p(class = "mb-0 mt-2",
+          tags$b("Why these are conservative: "),
+          "a false-positive assumption change is more costly to a campaign plan than waiting for one more well or a few more risk-event trials, so the thresholds deliberately require a fairly large sample AND a fairly large shift before recommending an update."),
         tags$p(class = "mb-0 mt-2 fst-italic",
           "All thresholds are defined once in BAYES_DECISION_THRESHOLDS (R/bayesian_updater.R) and used directly by the code that produces every Decision and Decision Reason shown on this page.")
       )
