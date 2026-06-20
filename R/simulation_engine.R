@@ -77,6 +77,15 @@ compute_adjusted_risk_probability <- function(probability, scope, risk_multiplie
   ifelse(is.na(adjusted), 0, adjusted)
 }
 
+# Normalised scope vector for a data.frame's `scope` column: missing column,
+# NA, or blank all default to "well". Used identically for risk_table and
+# assumptions_used so the audit column and the probability actually used to
+# draw risk occurrences can never derive scope two different ways.
+resolve_risk_scope <- function(df) {
+  s <- if ("scope" %in% names(df)) normalise_text(df$scope) else rep("well", nrow(df))
+  ifelse(is.na(s) | s == "", "well", s)
+}
+
 triangle_sample <- function(min_val, mode_val, max_val, n = 1) {
   min_val <- rep(as.numeric(min_val), length.out = n)
   mode_val <- rep(as.numeric(mode_val), length.out = n)
@@ -1123,8 +1132,7 @@ simulate_campaign_detailed <- function(
   risk_table <- assumptions %>%
     filter(normalise_text(type) == "risk") %>%
     mutate(
-      .scope = if ("scope" %in% names(.)) normalise_text(scope) else "well",
-      .scope = ifelse(is.na(.scope) | .scope == "", "well", .scope),
+      .scope = resolve_risk_scope(.),
       adjusted_probability = compute_adjusted_risk_probability(probability, .scope, risk_multiplier, base_stages),
       is_campaign_scope = .scope == "campaign",
       adds_plug = !is.na(simulation_impact) & str_detect(normalise_text(simulation_impact), "plug"),
@@ -1533,17 +1541,17 @@ simulate_campaign_detailed <- function(
   if (ncol(risk_event_log) == 0 || nrow(risk_event_log) == 0) risk_event_log <- empty_risk_event_log()
   resource_utilization <- bind_rows(resource_list)
 
-  # Mirror the scope-aware adjustment used to build risk_table above, so this
-  # audit column matches the probability actually used to draw risk
-  # occurrences (compute_adjusted_risk_probability() compounds stage-scope
-  # risk AFTER the multiplier, not before -- using the old plain
-  # probability * risk_multiplier formula here would silently understate the
-  # displayed/exported value for every stage-scope risk).
+  # Mirror the scope-aware adjustment used to build risk_table above (via the
+  # same resolve_risk_scope() helper), so this audit column matches the
+  # probability actually used to draw risk occurrences
+  # (compute_adjusted_risk_probability() compounds stage-scope risk AFTER the
+  # multiplier, not before -- using the old plain probability * risk_multiplier
+  # formula here would silently understate the displayed/exported value for
+  # every stage-scope risk).
   assumptions_used <- assumptions %>%
     mutate(
       risk_multiplier_used = risk_multiplier,
-      .scope_used = if ("scope" %in% names(assumptions)) normalise_text(scope) else "well",
-      .scope_used = ifelse(is.na(.scope_used) | .scope_used == "", "well", .scope_used),
+      .scope_used = resolve_risk_scope(.),
       probability_used = ifelse(normalise_text(type) == "risk",
                                 compute_adjusted_risk_probability(probability, .scope_used, risk_multiplier, base_stages),
                                 as.numeric(probability))

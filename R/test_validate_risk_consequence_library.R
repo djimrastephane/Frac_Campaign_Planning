@@ -24,7 +24,17 @@ df_bad$scope[1] <- "Stge"
 e1 <- tryCatch({ validate_risk_consequence_library(df_bad); NULL }, error = function(e) conditionMessage(e))
 chk(!is.null(e1) && grepl("invalid scope", e1, ignore.case = TRUE), "typo'd scope value is rejected")
 chk(!is.null(e1) && grepl("Stge", e1), "error names the offending scope value")
-chk(!is.null(e1) && grepl(df_bad$risk_name[1], e1), "error names the offending risk")
+chk(!is.null(e1) && grepl(df_bad$risk_name[1], e1, fixed = TRUE), "error names the offending risk")
+chk(!is.null(e1) && grepl("row 1", e1), "error names the offending row number")
+
+# -- 2b. A NA risk_name on the offending row does not crash the error message
+# (renders as a labelled placeholder, not the literal string "NA").
+df_bad_na_name <- TEMPLATE
+df_bad_na_name$scope[2] <- "Stge"
+df_bad_na_name$risk_name[2] <- NA
+e1b <- tryCatch({ validate_risk_consequence_library(df_bad_na_name); NULL }, error = function(e) conditionMessage(e))
+chk(!is.null(e1b) && grepl("row 2", e1b), "NA risk_name on the offending row does not crash the scope error")
+chk(!is.null(e1b) && grepl("unnamed row", e1b), "NA risk_name renders as a labelled placeholder, not the literal string 'NA'")
 
 # -- 3. Blank/NA scope is allowed (build_risk_table() defaults it to 'well', same as the
 # master assumptions CSV) -- only a non-blank, unrecognised value is an error.

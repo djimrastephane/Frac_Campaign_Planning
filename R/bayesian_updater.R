@@ -442,6 +442,16 @@ assess_duration_update <- function(duration_update) {
 #'                        to avoid flagging pure noise.
 #'   No action          -- shift is negligible, or evidence is Weak and the
 #'                        shift doesn't even clear the indicative bar.
+#'
+#' CHECKLIST for any new derived column added below: an unmatched row's
+#' prior_prob (0.05) is a fabricated default, not a real assumption, so
+#' every column that narrates or judges the prior/posterior MUST branch on
+#' `!matched` first (see decision, recommendation_level, recommendation_text,
+#' decision_reason, sample_caveat, narrative_interpretation, narrative_full
+#' below for the existing pattern). A column that skips this guard will
+#' silently present a fabricated prior as if it were real -- this has
+#' already happened once (sample_caveat, fixed after a code review caught
+#' it) and is the single most common way this function regresses.
 assess_risk_update <- function(risk_update) {
   if (is.null(risk_update) || nrow(risk_update) == 0) return(risk_update)
   th <- BAYES_DECISION_THRESHOLDS
@@ -544,14 +554,18 @@ assess_risk_update <- function(risk_update) {
       # !matched takes priority: that prior is a fabricated default, not a
       # real assumption anchoring anything, so the "stays close to the
       # prior" framing below would be actively misleading for those rows.
-      sample_caveat = if (!matched) sprintf(
-        "No matching assumption for '%s' -- this prior is a fabricated default, not a real planning assumption.",
-        risk_event
-      ) else if (evidence_strength == "Weak") sprintf(
-        "Posterior remains close to the prior because only %s %s available.",
-        .scope_unit_label(scope, n_trials),
-        if (n_trials == 1) "observation was" else "observations were"
-      ) else NA_character_,
+      sample_caveat = dplyr::case_when(
+        !matched ~ sprintf(
+          "No matching assumption for '%s' -- this prior is a fabricated default, not a real planning assumption.",
+          risk_event
+        ),
+        evidence_strength == "Weak" ~ sprintf(
+          "Posterior remains close to the prior because only %s %s available.",
+          .scope_unit_label(scope, n_trials),
+          if (n_trials == 1) "observation was" else "observations were"
+        ),
+        TRUE ~ NA_character_
+      ),
       narrative_interpretation = dplyr::case_when(
         !matched ~
           sprintf("'%s' was not found in master_risks_assumptions.csv -- no real prior to compare against.", risk_event),

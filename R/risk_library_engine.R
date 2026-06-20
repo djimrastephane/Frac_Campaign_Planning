@@ -31,6 +31,16 @@ compute_adjusted_risk_probability <- function(probability, scope, risk_multiplie
   ifelse(is.na(adjusted), 0, adjusted)
 }
 
+# Normalised scope vector for a data.frame's `scope` column: missing column,
+# NA, or blank all default to "well". Shared by build_risk_table() below and
+# simulation_engine_fast.R's assumptions_used construction, so the audit
+# column and the probability actually used to draw risk occurrences can
+# never derive scope two different ways.
+resolve_risk_scope <- function(df) {
+  s <- if ("scope" %in% names(df)) normalise_text(df$scope) else rep("well", nrow(df))
+  ifelse(is.na(s) | s == "", "well", s)
+}
+
 # Returns list(occurrence, lib_wide):
 #   occurrence : one row per risk_name (key, risk_name, category, scope,
 #                base_probability, affected_resource)
@@ -98,8 +108,7 @@ build_risk_table <- function(assumptions, base_stages, risk_multiplier, risk_lib
 
   risk_table <- risk_rows %>%
     dplyr::mutate(
-      .scope = if ("scope" %in% names(.)) normalise_text(scope) else "well",
-      .scope = ifelse(is.na(.scope) | .scope == "", "well", .scope),
+      .scope = resolve_risk_scope(.),
       adjusted_probability = compute_adjusted_risk_probability(probability, .scope, risk_multiplier, base_stages),
       is_campaign_scope = .scope == "campaign",
       adds_plug = !is.na(simulation_impact) & stringr::str_detect(normalise_text(simulation_impact), "plug"),

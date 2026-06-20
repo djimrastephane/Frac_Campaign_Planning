@@ -77,12 +77,15 @@ validate_risk_consequence_library <- function(df) {
   # column is hard-validated against in validate_inputs.R::validate_assumptions().
   if ("scope" %in% names(df)) {
     allowed_scope <- c("stage", "well", "campaign")
-    bad_scope <- df[!is.na(df$scope) & trimws(df$scope) != "" &
-                     !tolower(trimws(df$scope)) %in% allowed_scope, ]
-    if (nrow(bad_scope) > 0) {
+    bad_rows_idx <- which(!is.na(df$scope) & trimws(df$scope) != "" &
+                           !tolower(trimws(df$scope)) %in% allowed_scope)
+    if (length(bad_rows_idx) > 0) {
+      risk_label <- ifelse(is.na(df$risk_name[bad_rows_idx]) | trimws(df$risk_name[bad_rows_idx]) == "",
+                           "(unnamed row)", df$risk_name[bad_rows_idx])
+      detail <- sprintf("row %d (%s) = '%s'", bad_rows_idx, risk_label, df$scope[bad_rows_idx])
       errors <- c(errors, sprintf(
         "Invalid scope values (must be stage / well / campaign) for: %s",
-        paste(unique(paste0(bad_scope$risk_name, " = '", bad_scope$scope, "'")), collapse = ", ")
+        paste(detail, collapse = ", ")
       ))
     }
   }
