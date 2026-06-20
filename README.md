@@ -618,7 +618,9 @@ To add a new activity, copy any row of the same phase, paste at the end of that 
 
 # Outputs
 
-Audit package (zip): simulation_summary, simulation_well_details, simulation_risk_event_log (with consequence columns), resource_utilization, resource_utilization_summary, assumptions_used, executive_summary, executive_kpis, delay_contributors, stage_level_risks, risk_consequences, bottleneck_detection, resource_recommendations, recommendation_verdict (the evidence-based Recommended/Optional/Not justified call with its decision reason and full evidence trail), investment_ranking, cost_impact, wireline_constraint, traffic_lights, readiness_score, resource_timeline, management_report.pdf.
+Audit package (zip): simulation_summary, simulation_well_details, simulation_risk_event_log (with consequence columns), resource_utilization, resource_utilization_summary, assumptions_used, executive_summary, executive_kpis, delay_contributors, stage_level_risks, risk_consequences, bottleneck_detection, resource_recommendations, recommendation_verdict (the evidence-based Recommended/Optional/Not justified call with its decision reason and full evidence trail), investment_ranking, cost_impact, wireline_constraint, traffic_lights, readiness_score, resource_timeline, bayesian_duration_decision_audit and bayesian_risk_decision_audit (evidence strength, Decision and Decision Reason for every duration parameter and risk event, when a Bayesian update has been run this session), management_report.pdf.
+
+The management report PDF prepends a "Bayesian Decision Audit" page (duration and risk decision tables with Decision Reason) whenever a Bayesian update has been run this session, in addition to the existing Executive Decision Summary and Robustness & Scenario pages.
 
 Optimiser results and constraint cascade results export separately from the Optimiser tab.
 

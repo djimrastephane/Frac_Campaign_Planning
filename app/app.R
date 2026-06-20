@@ -1550,6 +1550,20 @@ server <- function(input, output, session) {
     )
   })
 
+  # Evidence/decision/decision-reason trail for the audit zip + PDF report
+  # (Issue #43). NULL when no Bayesian update has been run this session --
+  # uses tryCatch rather than req() so it degrades to NULL instead of
+  # propagating a silent "not ready" condition to callers like the audit
+  # package handler that need a definite value.
+  bayes_decision_r <- reactive({
+    br <- tryCatch(bayes_result_r(), error = function(e) NULL)
+    if (is.null(br)) return(NULL)
+    list(
+      duration = assess_duration_update(br$duration_update),
+      risk     = assess_risk_update(br$risk_update)
+    )
+  })
+
   output$bayes_status <- renderUI({
     if (is.null(input$bayes_new_wells_file)) {
       return(tags$p(class = "text-muted",
@@ -2875,7 +2889,8 @@ server <- function(input, output, session) {
         recommendation = rec_v2_r(),
         narrative = decision_narrative_r()$narrative,
         robustness = robustness_rv(),
-        scenario_records = scenario_library_rv()
+        scenario_records = scenario_library_rv(),
+        bayesian_decision = bayes_decision_r()
       )
     }
   )
@@ -2909,6 +2924,13 @@ server <- function(input, output, session) {
       write_csv(investment_r(), file.path(tmpdir, "investment_ranking.csv"))
       write_csv(timeline_r(), file.path(tmpdir, "resource_timeline.csv"))
       write_csv(consequences_r(), file.path(tmpdir, "risk_consequences.csv"))
+      bd <- bayes_decision_r()
+      if (!is.null(bd) && !is.null(bd$duration)) {
+        write_csv(bd$duration, file.path(tmpdir, "bayesian_duration_decision_audit.csv"))
+      }
+      if (!is.null(bd) && !is.null(bd$risk) && nrow(bd$risk) > 0) {
+        write_csv(bd$risk, file.path(tmpdir, "bayesian_risk_decision_audit.csv"))
+      }
       build_management_report_pdf(file.path(tmpdir, "management_report.pdf"),
                                   sim_results()$summary, sim_results()$risk_event_log,
                                   sim_results()$resource_utilization,
@@ -2920,7 +2942,8 @@ server <- function(input, output, session) {
                                   recommendation = rec_v2_r(),
                                   narrative = decision_narrative_r()$narrative,
                                   robustness = robustness_rv(),
-                                  scenario_records = scenario_library_rv())
+                                  scenario_records = scenario_library_rv(),
+                                  bayesian_decision = bd)
 
       files_to_zip <- list.files(tmpdir, full.names = TRUE)
       if (requireNamespace("zip", quietly = TRUE)) {

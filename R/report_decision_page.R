@@ -266,13 +266,103 @@ build_robustness_scenario_page <- function(file, robustness = NULL, scenario_rec
   invisible(file)
 }
 
+# Is there anything to put on the optional "Bayesian Decision Audit" page?
+# bayesian_decision is the list produced by the bayes_decision_r() reactive
+# in app.R: list(duration = assess_duration_update(...), risk = assess_risk_update(...)).
+.has_bayesian_decision_content <- function(bayesian_decision) {
+  !is.null(bayesian_decision) &&
+    ((!is.null(bayesian_decision$duration) && nrow(bayesian_decision$duration) > 0) ||
+     (!is.null(bayesian_decision$risk)     && nrow(bayesian_decision$risk)     > 0))
+}
+
+# Persists the Bayesian Update tab's evidence/decision/decision-reason trail
+# (Issue #40's assess_duration_update() / assess_risk_update() output) into
+# the PDF report -- previously this only existed live in the browser session
+# and was never captured in a downloadable artifact (Issue #43).
+build_bayesian_decision_page <- function(file, bayesian_decision) {
+  navy <- "#0F2A43"; panel_grey <- "#F4F6F8"
+  dur <- bayesian_decision$duration
+  risk <- bayesian_decision$risk
+
+  grDevices::pdf(file, width = 11.69, height = 8.27, onefile = TRUE)
+  on.exit(grDevices::dev.off(), add = TRUE)
+
+  tt <- gridExtra::ttheme_minimal(
+    core    = list(bg_params = list(fill = rep(c("white", panel_grey), length.out = 50), col = NA),
+                   fg_params = list(cex = 0.62, hjust = 0, x = 0.05)),
+    colhead = list(bg_params = list(fill = navy, col = NA),
+                   fg_params = list(col = "white", fontface = "bold", cex = 0.64, hjust = 0, x = 0.05)))
+
+  grid::grid.newpage()
+  grid::grid.rect(y = grid::unit(1, "npc"), height = grid::unit(0.09, "npc"), just = "top",
+                  gp = grid::gpar(fill = navy, col = NA))
+  grid::grid.text("Bayesian Decision Audit", x = 0.035, y = 0.965, just = c("left", "center"),
+                  gp = grid::gpar(col = "white", fontface = "bold", cex = 1.35))
+  grid::grid.text("Which planning assumptions changed this session, and why",
+                  x = 0.035, y = 0.928, just = c("left", "center"),
+                  gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
+  grid::grid.text(format(Sys.time(), "%d %b %Y"), x = 0.965, y = 0.955, just = c("right", "center"),
+                  gp = grid::gpar(col = "#C9D4DF", cex = 0.78))
+
+  y <- 0.86
+  grid::grid.text("Duration assumptions", x = 0.035, y = y, just = c("left", "center"),
+                  gp = grid::gpar(col = navy, fontface = "bold", cex = 0.86))
+
+  if (!is.null(dur) && nrow(dur) > 0) {
+    dur_tbl <- dur %>% transmute(
+      Parameter = label, `Prior (d)` = round(prior_mean, 3), `Updated (d)` = round(posterior_mean, 3),
+      Direction = direction, Evidence = evidence_strength, Decision = decision)
+    g <- gridExtra::tableGrob(as.data.frame(dur_tbl), rows = NULL, theme = tt)
+    grid::pushViewport(grid::viewport(x = 0.27, y = y - 0.10, width = 0.46, height = 0.10))
+    grid::grid.draw(g); grid::popViewport()
+
+    reasons <- paste(sprintf("%s: %s", dur$label, dur$decision_reason), collapse = "\n")
+    wrapped <- paste(unlist(lapply(strsplit(reasons, "\n")[[1]], strwrap, width = 60)), collapse = "\n")
+    grid::grid.text(wrapped, x = 0.55, y = y - 0.03, just = c("left", "top"),
+                    gp = grid::gpar(cex = 0.68, col = "grey20", lineheight = 1.3))
+  } else {
+    grid::grid.text("No new campaign wells uploaded this session.", x = 0.035, y = y - 0.045,
+                    just = c("left", "top"), gp = grid::gpar(cex = 0.74, col = "grey45"))
+  }
+
+  y2 <- 0.50
+  grid::grid.text("Risk assumptions", x = 0.035, y = y2, just = c("left", "center"),
+                  gp = grid::gpar(col = navy, fontface = "bold", cex = 0.86))
+
+  if (!is.null(risk) && nrow(risk) > 0) {
+    risk_tbl <- risk %>% transmute(
+      Event = risk_event, `Prior` = sprintf("%.1f%%", 100 * prior_prob),
+      `Updated` = sprintf("%.1f%%", 100 * posterior_mean),
+      `Change` = sprintf("%+.1fpp", 100 * delta_prob),
+      Evidence = evidence_strength, Decision = decision)
+    g2 <- gridExtra::tableGrob(as.data.frame(risk_tbl), rows = NULL, theme = tt)
+    grid::pushViewport(grid::viewport(x = 0.5, y = y2 - 0.12, width = 0.93, height = 0.02 + 0.045 * nrow(risk_tbl)))
+    grid::grid.draw(g2); grid::popViewport()
+
+    reasons2 <- paste(sprintf("%s: %s", risk$risk_event, risk$decision_reason), collapse = "\n")
+    wrapped2 <- paste(unlist(lapply(strsplit(reasons2, "\n")[[1]], strwrap, width = 140)), collapse = "\n")
+    grid::grid.text(wrapped2, x = 0.035, y = y2 - 0.28, just = c("left", "top"),
+                    gp = grid::gpar(cex = 0.68, col = "grey20", lineheight = 1.3))
+  } else {
+    grid::grid.text("No risk observations CSV uploaded this session.", x = 0.035, y = y2 - 0.045,
+                    just = c("left", "top"), gp = grid::gpar(cex = 0.74, col = "grey45"))
+  }
+
+  grid::grid.lines(x = c(0.035, 0.965), y = 0.045, gp = grid::gpar(col = "#D5DCE3"))
+  grid::grid.text("Frac Campaign Planning Simulator - decision support", x = 0.035, y = 0.027,
+                  just = "left", gp = grid::gpar(col = "grey45", cex = 0.62))
+  grid::grid.text("Evidence, Decision and Decision Reason are computed by assess_duration_update() / assess_risk_update().",
+                  x = 0.965, y = 0.027, just = "right", gp = grid::gpar(col = "grey45", cex = 0.62))
+  invisible(file)
+}
+
 # Override: prepend the decision page (and, if available, a robustness/
 # scenario page), then the original report; stitch.
 build_management_report_pdf <- function(file, summary, risk_event_log, resource_utilization,
     frac_fleet_cost_per_day = 250000, wireline_cost_per_day = 15000, ct_cost_per_day = 25000,
     milling_cost_per_day = 18000, testing_unit_cost_per_day = 12000,
     target_days = NULL, budget = NULL, recommendation = NULL, narrative = NULL,
-    robustness = NULL, scenario_records = NULL) {
+    robustness = NULL, scenario_records = NULL, bayesian_decision = NULL) {
 
   render_original <- function(out) .orig_build_management_report_pdf(
     out, summary, risk_event_log, resource_utilization,
@@ -295,6 +385,12 @@ build_management_report_pdf <- function(file, summary, risk_event_log, resource_
     rb_page <- tempfile(fileext = ".pdf")
     pages <- c(pages, rb_page)
     build_robustness_scenario_page(rb_page, robustness, scenario_records)
+  }
+
+  if (.has_bayesian_decision_content(bayesian_decision)) {
+    bd_page <- tempfile(fileext = ".pdf")
+    pages <- c(pages, bd_page)
+    build_bayesian_decision_page(bd_page, bayesian_decision)
   }
 
   orig_page <- tempfile(fileext = ".pdf")
