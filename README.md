@@ -152,6 +152,11 @@ project owner.
 
 # Screenshots
 
+*Last refreshed: 2026-06-16 (commit `a805beb`). UI labels and panels can drift out of sync
+with these images between refreshes — if something below doesn't match the running app,
+trust the app and regenerate via `Rscript generate_screenshots.R` and
+`Rscript generate_screenshots_tabs.R`.*
+
 ### Overview — KPI dashboard
 ![Overview tab](docs/images/screenshots/01_overview.png)
 
