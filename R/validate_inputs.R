@@ -87,6 +87,32 @@ validate_assumptions <- function(df) {
     )
   }
 
+  # Empty risk name is a hard error: an unnamed risk row can't be referenced
+  # by a risk_consequence_library upload or a Bayesian risk observation, and
+  # silently sails through every downstream join as a blank label.
+  empty_name <- risk_rows %>% dplyr::filter(is.na(variable) | trimws(variable) == "")
+  if (nrow(empty_name) > 0) {
+    stop(
+      "Risk rows must have a non-empty 'Variable / Risk Event' name:\n",
+      paste("row", utils::head(empty_name$.row, 10), collapse = "\n")
+    )
+  }
+
+  # Duplicate risk names (case/whitespace-insensitive) is a hard error: the
+  # engine treats every assumptions row as an independent risk, so two rows
+  # for the "same" risk fire and propagate consequences independently,
+  # silently double-counting that risk's probability and impact.
+  dup_keys <- tolower(trimws(risk_rows$variable))
+  dup_name <- risk_rows %>% dplyr::filter(dup_keys %in% dup_keys[duplicated(dup_keys)])
+  if (nrow(dup_name) > 0) {
+    detail <- paste0("row ", dup_name$.row, " (", dup_name$variable, ")")
+    stop(
+      "Risk rows have duplicate names (case/whitespace-insensitive) — each risk must appear once:\n",
+      paste(utils::head(detail, 10), collapse = "\n"),
+      if (nrow(dup_name) > 10) paste0("\n... and ", nrow(dup_name) - 10, " more.") else ""
+    )
+  }
+
   # Invalid (non-blank, unrecognised) scope is a hard error: the engine
   # silently treats any unmatched scope value as "well", so a typo like
   # "Stge" would otherwise change a stage-compounding risk to a flat
