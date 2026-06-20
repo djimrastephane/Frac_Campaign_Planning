@@ -87,15 +87,37 @@ validate_assumptions <- function(df) {
     )
   }
 
+  # Invalid (non-blank, unrecognised) scope is a hard error: the engine
+  # silently treats any unmatched scope value as "well", so a typo like
+  # "Stge" would otherwise change a stage-compounding risk to a flat
+  # per-well probability with no error and no warning visible at run time.
+  valid_scopes <- c("stage", "well", "campaign")
+  if ("scope" %in% names(risk_rows)) {
+    bad_scope <- risk_rows %>%
+      dplyr::filter(!is.na(scope), trimws(scope) != "", !trimws(tolower(scope)) %in% valid_scopes)
+    if (nrow(bad_scope) > 0) {
+      detail <- paste0("row ", bad_scope$.row, " (", bad_scope$variable, "): scope = '", bad_scope$scope, "'")
+      stop(
+        "Risk rows have an invalid scope (must be stage / well / campaign):\n",
+        paste(utils::head(detail, 10), collapse = "\n"),
+        if (nrow(bad_scope) > 10) paste0("\n... and ", nrow(bad_scope) - 10, " more.") else ""
+      )
+    }
+  }
+
   # Soft warnings
   w <- character(0)
   high_p <- risk_rows %>% dplyr::filter(!is.na(probability) & probability > 0.5)
   if (nrow(high_p) > 0)
     w <- c(w, sprintf("%d risk row(s) have probability > 50%% — check if intentional: %s.",
                       nrow(high_p), paste(utils::head(high_p$variable, 3), collapse = ", ")))
-  no_scope <- risk_rows %>% dplyr::filter(is.na(scope) | !trimws(tolower(scope)) %in% c("stage", "well", "campaign"))
+  no_scope <- if ("scope" %in% names(risk_rows)) {
+    risk_rows %>% dplyr::filter(is.na(scope) | trimws(scope) == "")
+  } else {
+    risk_rows
+  }
   if (nrow(no_scope) > 0)
-    w <- c(w, sprintf("%d risk row(s) missing or invalid scope (must be stage / well / campaign).", nrow(no_scope)))
+    w <- c(w, sprintf("%d risk row(s) missing scope — defaulting to 'well'.", nrow(no_scope)))
   attr(df, "input_warnings") <- w
 
   df

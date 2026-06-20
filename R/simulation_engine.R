@@ -417,7 +417,7 @@ empty_risk_event_log <- function() {
     extra_milling_plugs = numeric(), extra_milling_days = numeric(), extra_testing_days = numeric(),
     extra_frac_days = numeric(),
     min_delay_days = numeric(), most_likely_delay_days = numeric(), max_delay_days = numeric(),
-    simulation_impact = character()
+    simulation_impact = character(), severity = character(), extra_logistics_days = numeric()
   )
 }
 
@@ -425,9 +425,13 @@ empty_risk_event_log <- function() {
 # Returns: risk_log (occurred events only) + per-well numeric summary matrix.
 # v15: consequence propagation - induced wireline/CT/milling/testing/frac
 # workload is accumulated alongside the direct delay.
+# severity/extra_logistics_days/logistics_x exist here purely for schema parity
+# with simulation_engine_fast.R's risk_consequence_library overlay (see
+# R/risk_library_engine.R). This engine has no risk_library parameter, so
+# severity is always NA and logistics_x is always 0 -- numerically a no-op.
 SUM_COLS <- c("frac", "wireline", "ct", "milling", "external", "total",
               "plugs", "stages", "wl_runs", "wl_run_days", "ct_x",
-              "mill_x_plugs", "test_x", "frac_x")
+              "mill_x_plugs", "test_x", "frac_x", "logistics_x")
 
 empty_sums_matrix <- function(n_wells) {
   matrix(0, nrow = n_wells, ncol = length(SUM_COLS),
@@ -493,6 +497,10 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
   c_mill_days <- c_mill_plugs * well_df$milling_days_per_plug[w]
   c_test_days <- as.numeric(grid$extra_testing_days[occurs])
   c_frac_days <- as.numeric(grid$extra_frac_days[occurs])
+  # No risk_library support in this engine (see SUM_COLS comment above):
+  # severity is always unset and logistics consequence is always zero.
+  severity_event <- rep(NA_character_, n_occ)
+  c_logistics_days <- rep(0, n_occ)
 
   # Vectorised stage assignment
   ws <- well_df$stages[w]
@@ -524,6 +532,7 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
   sums <- accumulate_into(sums, "mill_x_plugs",w, c_mill_plugs)
   sums <- accumulate_into(sums, "test_x",      w, c_test_days)
   sums <- accumulate_into(sums, "frac_x",      w, c_frac_days)
+  sums <- accumulate_into(sums, "logistics_x", w, c_logistics_days)
 
   risk_log <- tibble(
     simulation_id = iter_id,
@@ -548,7 +557,9 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
     min_delay_days = grid$min_days[occurs],
     most_likely_delay_days = grid$most_likely_days[occurs],
     max_delay_days = grid$max_days[occurs],
-    simulation_impact = grid$simulation_impact[occurs]
+    simulation_impact = grid$simulation_impact[occurs],
+    severity = severity_event,
+    extra_logistics_days = c_logistics_days
   )
 
   list(risk_log = risk_log, sums = sums)
@@ -1193,7 +1204,12 @@ simulate_campaign_detailed <- function(
         wireline_risk_delay_days = s[, "wireline"],
         ct_risk_delay_days = s[, "ct"],
         milling_risk_delay_days = s[, "milling"],
-        external_risk_delay_days = s[, "external"],
+        # Logistics consequence days have no dedicated fleet, so they're
+        # folded into the external bucket (same treatment as weather/permit
+        # delays) while remaining separately reportable via logistics_consequence_days.
+        # Always 0 in this engine (no risk_library support) -- a no-op fold.
+        external_risk_delay_days = s[, "external"] + s[, "logistics_x"],
+        logistics_consequence_days = s[, "logistics_x"],
         risk_delay_days = s[, "total"],
         extra_plugs = s[, "plugs"],
         extra_stages = s[, "stages"],
@@ -1464,7 +1480,8 @@ simulate_campaign_detailed <- function(
       milling_completion_day = milling_completion_day,
       testing_completion_day = testing_completion_day,
       frac_tree_efficiency_factor = tree_efficiency_factor,
-      estimated_campaign_days = estimated_campaign_days
+      estimated_campaign_days = estimated_campaign_days,
+      total_induced_logistics_days = sum(well_df$logistics_consequence_days, na.rm = TRUE)
     )
 
     resource_workload <- c(
