@@ -330,7 +330,13 @@ derive_risk_consequences <- function(risk_table, config = CONSEQUENCE_CONFIG) {
     }
   }
 
+  # *_is_override flags record whether each cell came from a real CSV value
+  # (highest precedence) vs. a filled-in default, so callers that also have a
+  # risk_consequence_library (lower precedence than CSV, higher than the
+  # pattern default) can resolve the three-way precedence correctly instead of
+  # the CSV/default distinction being lost once both are coalesced here.
   for (cc in cons_cols) {
+    override_col <- paste0(cc, "_is_override")
     if (cc %in% names(risk_table)) {
       # CSV value wins where supplied; library default fills the gaps.
       raw <- risk_table[[cc]]
@@ -344,8 +350,10 @@ derive_risk_consequences <- function(risk_table, config = CONSEQUENCE_CONFIG) {
           cc, paste(risk_table$risk_event[bad], collapse = ", ")
         ))
       }
+      risk_table[[override_col]] <- !is.na(csv_val)
       risk_table[[cc]] <- ifelse(is.na(csv_val), defaults[, cc], csv_val)
     } else {
+      risk_table[[override_col]] <- FALSE
       risk_table[[cc]] <- defaults[, cc]
     }
   }
@@ -385,6 +393,12 @@ build_risk_grid <- function(risk_table, n_wells) {
     extra_milling_plugs = risk_table$extra_milling_plugs[risk_idx],
     extra_testing_days = risk_table$extra_testing_days[risk_idx],
     extra_frac_days = risk_table$extra_frac_days[risk_idx],
+    extra_wireline_runs_is_override = risk_table$extra_wireline_runs_is_override[risk_idx],
+    extra_ct_days_is_override = risk_table$extra_ct_days_is_override[risk_idx],
+    extra_milling_plugs_is_override = risk_table$extra_milling_plugs_is_override[risk_idx],
+    extra_testing_days_is_override = risk_table$extra_testing_days_is_override[risk_idx],
+    extra_frac_days_is_override = risk_table$extra_frac_days_is_override[risk_idx],
+    lib_key = if ("lib_key" %in% names(risk_table)) risk_table$lib_key[risk_idx] else NA_character_,
     stage_eligible = risk_table$resource_class[risk_idx] %in% c("wireline", "frac"),
     is_campaign_scope = risk_table$is_campaign_scope[risk_idx]
   )
@@ -399,7 +413,7 @@ empty_risk_event_log <- function() {
     extra_milling_plugs = numeric(), extra_milling_days = numeric(), extra_testing_days = numeric(),
     extra_frac_days = numeric(),
     min_delay_days = numeric(), most_likely_delay_days = numeric(), max_delay_days = numeric(),
-    simulation_impact = character()
+    simulation_impact = character(), severity = character()
   )
 }
 
@@ -417,7 +431,8 @@ empty_sums_matrix <- function(n_wells) {
 }
 
 draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
-                               wireline_run_days = 0.25, collect_log = TRUE) {
+                               wireline_run_days = 0.25, collect_log = TRUE,
+                               lib_wide = NULL) {
   # Standard per-well draw
   occurs <- stats::rbinom(grid$n, 1, grid$adjusted_probability) == 1
 
@@ -465,16 +480,74 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
   delay[is.na(delay)] <- 0
   rclass <- grid$resource_class[occurs]
   extra_plugs <- as.numeric(grid$adds_plug[occurs])
-  extra_stages <- as.numeric(grid$adds_stage[occurs])
 
-  # Consequence quantities for the occurred events
+  # Consequence quantities for the occurred events.
+  # extra_* here is already CSV-override-or-CONSEQUENCE_CONFIG-default
+  # (resolved by derive_risk_consequences()); this is the lowest two tiers of
+  # the three-way precedence chain.
   c_wl_runs <- as.numeric(grid$extra_wireline_runs[occurs])
-  c_wl_days <- c_wl_runs * wireline_run_days
   c_ct_days <- as.numeric(grid$extra_ct_days[occurs])
   c_mill_plugs <- as.numeric(grid$extra_milling_plugs[occurs])
-  c_mill_days <- c_mill_plugs * well_df$milling_days_per_plug[w]
   c_test_days <- as.numeric(grid$extra_testing_days[occurs])
   c_frac_days <- as.numeric(grid$extra_frac_days[occurs])
+
+  # Severity-tier overlay: for occurred events whose risk is covered by an
+  # uploaded risk_consequence_library, sample a severity tier (Minor/Moderate/
+  # Major, weighted by the library's scenario_probability) and use that tier's
+  # consequence magnitude in place of the CONSEQUENCE_CONFIG default -- but
+  # never in place of a real CSV override on master_risks_assumptions.csv,
+  # which keeps top precedence. Fully vectorised (no per-event loop) to stay
+  # in line with this engine's performance requirements.
+  severity_event <- rep(NA_character_, n_occ)
+  ev_lib_key <- grid$lib_key[occurs]
+  has_lib <- !is.null(lib_wide) && any(!is.na(ev_lib_key))
+  if (has_lib) {
+    lib_idx <- which(!is.na(ev_lib_key))
+    m <- lib_wide[match(ev_lib_key[lib_idx], lib_wide$key), ]
+    u <- runif(length(lib_idx))
+    # Per-event thresholds differ by risk, so this is a direct elementwise
+    # comparison rather than findInterval() (whose breakpoint vector must be
+    # fixed across all observations, not vary per row). cum_moderate is
+    # already the cumulative threshold (minor + moderate), not the moderate
+    # share alone.
+    sev_tier <- ifelse(u <= m$cum_minor, 1L,
+                       ifelse(u <= m$cum_moderate, 2L, 3L))
+    severity_event[lib_idx] <- c("Minor", "Moderate", "Major")[sev_tier]
+
+    pick <- function(field) {
+      m[[paste0(field, "_minor")]]    * (sev_tier == 1) +
+      m[[paste0(field, "_moderate")]] * (sev_tier == 2) +
+      m[[paste0(field, "_major")]]    * (sev_tier == 3)
+    }
+    lib_val <- function(field) {
+      out <- rep(NA_real_, n_occ)
+      out[lib_idx] <- pick(field)
+      out
+    }
+    is_ovr_wl   <- as.logical(grid$extra_wireline_runs_is_override[occurs])
+    is_ovr_ct   <- as.logical(grid$extra_ct_days_is_override[occurs])
+    is_ovr_mill <- as.logical(grid$extra_milling_plugs_is_override[occurs])
+    is_ovr_test <- as.logical(grid$extra_testing_days_is_override[occurs])
+    is_ovr_frac <- as.logical(grid$extra_frac_days_is_override[occurs])
+
+    overlay <- function(default_val, is_override, lib_field) {
+      lv <- lib_val(lib_field)
+      ifelse(is_override, default_val, ifelse(!is.na(lv), lv, default_val))
+    }
+    c_wl_runs    <- overlay(c_wl_runs,    is_ovr_wl,   "wireline_runs")
+    c_ct_days    <- overlay(c_ct_days,    is_ovr_ct,   "ct_days")
+    c_mill_plugs <- overlay(c_mill_plugs, is_ovr_mill, "milling_plugs")
+    c_test_days  <- overlay(c_test_days,  is_ovr_test, "testing_days")
+    c_frac_days  <- overlay(c_frac_days,  is_ovr_frac, "pump_days")
+
+    lib_extra_stages <- lib_val("extra_stages")
+    extra_stages_lib <- ifelse(is.na(lib_extra_stages), 0, lib_extra_stages)
+  } else {
+    extra_stages_lib <- rep(0, n_occ)
+  }
+  c_wl_days <- c_wl_runs * wireline_run_days
+  c_mill_days <- c_mill_plugs * well_df$milling_days_per_plug[w]
+  extra_stages <- as.numeric(grid$adds_stage[occurs]) + extra_stages_lib
 
   # Vectorised stage assignment
   ws <- well_df$stages[w]
@@ -537,7 +610,8 @@ draw_risks_on_grid <- function(grid, well_df, iter_id, operation_mode,
     min_delay_days = grid$min_days[occurs],
     most_likely_delay_days = grid$most_likely_days[occurs],
     max_delay_days = grid$max_days[occurs],
-    simulation_impact = grid$simulation_impact[occurs]
+    simulation_impact = grid$simulation_impact[occurs],
+    severity = severity_event
   )
 
   list(risk_log = risk_log, sums = sums)
@@ -1013,6 +1087,7 @@ simulate_campaign_detailed <- function(
     testing_units = 1,                   # dedicated testing units for flowback + milling
     flowback_testing_days_min = 7,       # post-frac flowback + testing window
     flowback_testing_days_max = 10,
+    risk_library = NULL,                 # optional risk_consequence_library tibble (severity tiers + consequence magnitudes; see R/risk_library_engine.R)
     seed = NULL,
     progress_callback = NULL,  # optional function(i, n) for Shiny progress
     # --- perf (round 1): skip building per-iteration output frames the caller
@@ -1132,27 +1207,9 @@ simulate_campaign_detailed <- function(
     na.rm = TRUE
   )
 
-  risk_table <- assumptions %>%
-    filter(normalise_text(type) == "risk") %>%
-    mutate(
-      .scope = if ("scope" %in% names(.)) normalise_text(scope) else "well",
-      .scope = ifelse(is.na(.scope) | .scope == "", "well", .scope),
-      # Stage-scope: convert per-stage probability to effective per-well probability
-      .eff_prob_well = case_when(
-        .scope == "stage" ~ 1 - (1 - pmin(as.numeric(probability), 1))^base_stages,
-        .scope == "campaign" ~ as.numeric(probability),  # handled separately in draw
-        TRUE ~ as.numeric(probability)  # "well" scope
-      ),
-      adjusted_probability = pmin(.eff_prob_well * risk_multiplier, 1),
-      adjusted_probability = ifelse(is.na(adjusted_probability), 0, adjusted_probability),
-      is_campaign_scope = .scope == "campaign",
-      adds_plug = !is.na(simulation_impact) & str_detect(normalise_text(simulation_impact), "plug"),
-      adds_stage = !is.na(simulation_impact) & str_detect(normalise_text(simulation_impact), "extra stage|additional stage|re-frac|refrac|lost stage|screen out"),
-      resource_class = risk_resource_class(category, variable),
-      risk_event = as.character(variable)
-    ) %>%
-    select(-.scope, -.eff_prob_well) %>%
-    derive_risk_consequences()
+  rt <- build_risk_table(assumptions, base_stages, risk_multiplier, risk_library)
+  risk_table <- rt$table
+  lib_wide <- rt$lib_wide
 
   risk_grid <- build_risk_grid(risk_table, n_wells)
 
@@ -1209,7 +1266,7 @@ simulate_campaign_detailed <- function(
     if (!is.null(risk_grid)) {
       drawn <- draw_risks_on_grid(risk_grid, well_df, iter_id, operation_mode,
                                   wireline_run_days = wireline_time_per_stage_days,
-                                  collect_log = keep_logs)
+                                  collect_log = keep_logs, lib_wide = lib_wide)
       risk_log <- drawn$risk_log
       s <- drawn$sums
     } else {

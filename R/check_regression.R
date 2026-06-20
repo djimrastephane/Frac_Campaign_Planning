@@ -17,6 +17,7 @@ stopifnot(file.exists("simulation_engine.R"), file.exists("simulation_engine_fas
 
 orig <- new.env(); sys.source("simulation_engine.R",      envir = orig)
 fast <- new.env(); sys.source("simulation_engine_fast.R", envir = fast)
+sys.source("risk_library_engine.R", envir = fast)  # build_risk_table(); risk_library defaults to NULL, no behavior change
 
 # ---- synthetic inputs (same schema the engine queries) ----------------------
 ASSUMPTIONS <- dplyr::bind_rows(

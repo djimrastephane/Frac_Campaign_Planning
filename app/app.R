@@ -31,6 +31,7 @@ source(file.path(project_root, "R", "load_inputs.R"))
 source(file.path(project_root, "R", "validate_inputs.R"))
 source(file.path(project_root, "R", "validate_risk_consequence_library.R"))
 source(file.path(project_root, "R", "simulation_engine_fast.R"))
+source(file.path(project_root, "R", "risk_library_engine.R"))
 source(file.path(project_root, "R", "optimiser_parallel.R"))
 source(file.path(project_root, "R", "risk_uncertainty.R"))
 source(file.path(project_root, "R", "bottleneck_explain.R"))
@@ -935,7 +936,7 @@ server <- function(input, output, session) {
       } else {
         input$risk_library_file$datapath
       }
-      read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
+      risk_library <- read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
         validate_risk_consequence_library()
 
       assumptions <- load_master_assumptions(input$assumption_file$datapath) %>%
@@ -945,10 +946,11 @@ server <- function(input, output, session) {
         attr(assumptions, "input_warnings") %||% character(0)
       )
       list(ok = TRUE, historical = historical, assumptions = assumptions,
+           risk_library = risk_library,
            error = NULL, using_synthetic = using_synthetic,
            warnings = input_warnings)
     }, error = function(e) {
-      list(ok = FALSE, historical = NULL, assumptions = NULL,
+      list(ok = FALSE, historical = NULL, assumptions = NULL, risk_library = NULL,
            error = conditionMessage(e), using_synthetic = FALSE)
     })
   })
@@ -1030,6 +1032,7 @@ server <- function(input, output, session) {
             testing_units = input$testing_units,
             flowback_testing_days_min = input$flowback_testing_days_min,
             flowback_testing_days_max = input$flowback_testing_days_max,
+            risk_library = dat$risk_library,
             seed = as.integer(input$seed) + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
           )
           if (engine_has_progress) {
