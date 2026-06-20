@@ -117,5 +117,29 @@ chk(.scope_unit_label("well", 4) == "4 wells", ".scope_unit_label: plural wells"
 chk(.scope_unit_label("campaign", 1) == "1 campaign", ".scope_unit_label: singular campaign")
 chk(.scope_unit_label("campaign", 3) == "3 campaigns", ".scope_unit_label: plural campaigns")
 
+
+# -- Unmatched risk_event names must never look like a normal decision: the
+# fuzzy-match in bayesian_update_risks() falls back to a fabricated 0.05
+# prior, and that must be surfaced, not silently presented as real.
+ROBS_BAD <- dplyr::bind_rows(ROBS, tibble::tibble(
+  risk_event = "Frobnicator failure", n_trials = 40, n_events = 10
+))
+br_bad <- run_bayesian_update(HW, NW, ASSU, ROBS_BAD, prior_strength = 20)
+ru_bad <- assess_risk_update(br_bad$risk_update)
+unmatched <- row(ru_bad, "risk_event", "Frobnicator failure")
+
+chk(nrow(unmatched) == 1, "unmatched risk_event still produces one output row")
+chk(isFALSE(unmatched$matched), "'Frobnicator failure' is flagged matched = FALSE")
+chk(unmatched$decision == "No assumption match", "unmatched row gets the distinct 'No assumption match' decision")
+chk(unmatched$recommendation_level == "Not justified", "unmatched row is never 'Recommended' or 'Optional'")
+chk(grepl("fabricated", unmatched$decision_reason), "decision_reason names the prior as fabricated")
+chk(grepl("no matching risk", unmatched$narrative_full, ignore.case = TRUE),
+    "narrative_full states no matching risk was found, not a normal posterior-shift story")
+
+# -- A real match in the same batch is unaffected by the unmatched row.
+so_bad <- row(ru_bad, "risk_event", "Screen out")
+chk(isTRUE(so_bad$matched), "matched rows in the same batch keep matched = TRUE")
+chk(so_bad$decision == "Update assumption", "matched row's decision is unaffected by an unmatched row elsewhere in the batch")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

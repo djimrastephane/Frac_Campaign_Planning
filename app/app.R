@@ -1985,7 +1985,9 @@ server <- function(input, output, session) {
           return(tags$p(class = "small text-muted mb-0",
             sprintf("No %s-level risk observations in this dataset.", scope_filter)))
         }
-        tags$p(class = "small text-primary mb-0 fw-semibold", paste(ru$narrative_full, collapse = " "))
+        any_unmatched <- any(!ru$matched)
+        tags$p(class = paste("small mb-0 fw-semibold", if (any_unmatched) "text-danger" else "text-primary"),
+               paste(ru$narrative_full, collapse = " "))
       }),
       plot = renderPlot({
         plot_bayesian_risk_update(ru_r())
@@ -1999,8 +2001,11 @@ server <- function(input, output, session) {
         df <- ru %>%
           transmute(
             `Risk event`      = risk_event,
+            Matched           = ifelse(matched, "Yes", "✘ No match"),
             `Sample`          = mapply(.scope_unit_label, scope, n_trials),
-            `Prior prob.`     = sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
+            `Prior prob.`     = ifelse(matched,
+                                       sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
+                                       sprintf("%.3f (%.1f%%) — fabricated default, not a real assumption", prior_prob, 100 * prior_prob)),
             `Events`          = n_events,
             `Observed freq.`  = sprintf("%.1f%%", 100 * observed_freq),
             `Post. mean`      = sprintf("%.3f (%.1f%%)", posterior_mean, 100 * posterior_mean),
@@ -2015,10 +2020,13 @@ server <- function(input, output, session) {
                       options = list(dom = "t", scrollX = TRUE)) %>%
           DT::formatStyle("Shift",
             color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00"))) %>%
+          DT::formatStyle("Matched",
+            backgroundColor = DT::styleEqual("✘ No match", "#f8d7da"),
+            fontWeight = DT::styleEqual("✘ No match", "bold")) %>%
           DT::formatStyle("Decision",
             backgroundColor = DT::styleEqual(
-              c("No action", "Monitor", "Update assumption"),
-              c("#d4edda", "#fff3cd", "#f8d7da")))
+              c("No action", "Monitor", "Update assumption", "No assumption match"),
+              c("#d4edda", "#fff3cd", "#f8d7da", "#f8d7da")))
       })
     )
   }

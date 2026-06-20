@@ -120,9 +120,13 @@ bayesian_update_durations <- function(historical_wells, new_wells) {
 #'                        strongly anchored; lower values let new data dominate.
 #'
 #' @return Tibble with one row per risk event in risk_obs:
-#'   risk_event, prior_prob, alpha_prior, beta_prior, n_trials, n_events,
+#'   risk_event, matched, prior_prob, alpha_prior, beta_prior, n_trials, n_events,
 #'   alpha_post, beta_post, posterior_mean, posterior_p05, posterior_p95,
 #'   delta_prob
+#'   `matched` is FALSE when obs_name had no fuzzy match in the assumptions
+#'   CSV -- in that case prior_prob is a fabricated 0.05 default, not the
+#'   user's real planning assumption, and callers MUST surface this rather
+#'   than presenting the row as a normal result (see assess_risk_update()).
 bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
   stopifnot(is.data.frame(assumptions), is.data.frame(risk_obs))
 
@@ -161,9 +165,10 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
              str_detect(tolower(obs_name), tolower(risk_event))) %>%
       slice_head(n = 1)
 
-    p0 <- if (nrow(match_row) > 0) match_row$prior_prob else 0.05
+    matched <- nrow(match_row) > 0
+    p0 <- if (matched) match_row$prior_prob else 0.05
     p0 <- pmax(0.001, pmin(0.999, p0))
-    scope0 <- if (nrow(match_row) > 0) match_row$scope else "well"
+    scope0 <- if (matched) match_row$scope else "well"
 
     # Jeffreys-adjusted Beta prior
     alpha0 <- p0 * prior_strength + 0.5
@@ -176,6 +181,7 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
 
     tibble(
       risk_event    = obs_name,
+      matched       = matched,
       scope         = scope0,
       prior_prob    = p0,
       alpha_prior   = alpha0,
@@ -460,17 +466,24 @@ assess_risk_update <- function(risk_update) {
         n_events >= th$min_events_for_update &
         abs(delta_prob) >= th$min_posterior_shift_pp &
         rel_change >= th$min_relative_shift,
+      # An unmatched risk_event name (no fuzzy match in the assumptions CSV)
+      # was scored against a fabricated 0.05 prior, not the user's real
+      # planning assumption -- it must never look like a normal decision.
       decision = dplyr::case_when(
+        !matched ~ "No assumption match",
         meets_update_gate ~ "Update assumption",
         delta_prob > 0 & evidence_strength %in% c("Weak", "Moderate") & magnitude_tier != "Negligible" ~ "Monitor",
         TRUE ~ "No action"
       ),
       recommendation_level = dplyr::case_when(
+        decision == "No assumption match"                                     ~ "Not justified",
         decision == "Update assumption"                                       ~ "Recommended",
         decision == "Monitor" & evidence_strength %in% c("Moderate", "Strong") ~ "Optional",
         TRUE                                                                   ~ "Not justified"
       ),
       recommendation_text = dplyr::case_when(
+        decision == "No assumption match" ~
+          sprintf("No matching risk found in master_risks_assumptions.csv for '%s' -- check the spelling, or add this risk to the assumptions CSV before relying on this row.", risk_event),
         decision == "Update assumption" ~
           sprintf("Update risk assumption to %.1f%% (from %.1f%%).", 100 * posterior_mean, 100 * prior_prob),
         decision == "Monitor" & evidence_strength == "Weak" ~
@@ -483,6 +496,8 @@ assess_risk_update <- function(risk_update) {
       # which gate(s) the decision turned on, in the style requested for the
       # Risk Probability Summary table.
       decision_reason = dplyr::case_when(
+        decision == "No assumption match" ~
+          sprintf("'%s' did not match any risk in the assumptions CSV; prior_prob is a fabricated 5%% default, not a real planning assumption.", risk_event),
         decision == "Update assumption" ~ sprintf(
           "%d event%s in %d trials. Posterior %s by %+.1f pp. Evidence %s. Update threshold exceeded.",
           n_events, if (n_events == 1) "" else "s", n_trials,
@@ -524,24 +539,32 @@ assess_risk_update <- function(risk_update) {
         if (n_trials == 1) "observation was" else "observations were"
       ) else NA_character_,
       narrative_interpretation = dplyr::case_when(
+        !matched ~
+          sprintf("'%s' was not found in master_risks_assumptions.csv -- no real prior to compare against.", risk_event),
         evidence_strength == "Weak" ~
           sprintf("Insufficient evidence to conclude a change in %s frequency.", tolower(risk_event)),
         direction == "Increasing" ~ "Evidence suggests the event may be occurring more frequently than assumed.",
         direction == "Decreasing" ~ "Evidence suggests the event may be occurring less frequently than assumed.",
         TRUE ~ "Evidence is consistent with the current assumption."
       ),
-      narrative_full = sprintf(
-        "%s shifted from %.1f%% to %.1f%%. %s event%s %s observed across %d opportunit%s. Evidence is %s%s. Recommendation: %s.",
-        risk_event, 100 * prior_prob, 100 * posterior_mean,
-        .cap1(.num_word(n_events)), if (n_events == 1) "" else "s", if (n_events == 1) "was" else "were",
-        n_trials, if (n_trials == 1) "y" else "ies",
-        tolower(evidence_strength),
-        dplyr::case_when(
-          decision == "Update assumption" ~ " and exceeds the update threshold",
-          decision == "Monitor"           ~ ", which is not yet enough to update the assumption",
-          TRUE                            ~ " and the shift is below the update threshold"
-        ),
-        tolower(decision))
+      narrative_full = if (!matched) {
+        sprintf(
+          "%s: no matching risk found in master_risks_assumptions.csv. The %.1f%% prior shown is a fabricated default, not this campaign's real planning assumption -- check the spelling in the risk observations CSV or add this risk to the assumptions CSV.",
+          risk_event, 100 * prior_prob)
+      } else {
+        sprintf(
+          "%s shifted from %.1f%% to %.1f%%. %s event%s %s observed across %d opportunit%s. Evidence is %s%s. Recommendation: %s.",
+          risk_event, 100 * prior_prob, 100 * posterior_mean,
+          .cap1(.num_word(n_events)), if (n_events == 1) "" else "s", if (n_events == 1) "was" else "were",
+          n_trials, if (n_trials == 1) "y" else "ies",
+          tolower(evidence_strength),
+          dplyr::case_when(
+            decision == "Update assumption" ~ " and exceeds the update threshold",
+            decision == "Monitor"           ~ ", which is not yet enough to update the assumption",
+            TRUE                            ~ " and the shift is below the update threshold"
+          ),
+          tolower(decision))
+      }
     ) %>%
     ungroup()
 }
