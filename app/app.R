@@ -65,6 +65,33 @@ fmt_money_short <- function(x) {
   else paste0("$", round(x, 0))
 }
 
+# Flattens recommend_action()'s list output (R/recommendations.R) into a
+# one-row tibble so the evidence-based 3-way verdict can be written to the
+# audit package -- previously only resource_recommendations.csv (the older,
+# simpler build_resource_recommendations() table) was exported, so the
+# traceable recommendation shown on the Decision Support tab never made it
+# into the downloadable record (Issue #42).
+recommendation_verdict_to_df <- function(rec) {
+  tibble(
+    operation_mode          = rec$operation_mode,
+    recommendation          = rec$recommendation,
+    decision_status         = rec$decision_status,
+    decision_reason         = rec$decision_reason,
+    bottleneck              = rec$bottleneck,
+    bottleneck_status       = rec$status,
+    p90_utilization         = rec$p90_utilization,
+    base_p50_days           = rec$base_p50_days,
+    new_p50_days            = rec$new_p50_days,
+    expected_reduction_days = rec$expected_reduction_days,
+    spread_rate_per_day     = rec$spread_rate_per_day,
+    expected_value          = rec$expected_value,
+    confidence              = rec$confidence,
+    confidence_band         = rec$confidence_band,
+    basis                   = rec$basis,
+    why                     = paste(rec$why, collapse = " | ")
+  )
+}
+
 plot_card <- function(header, output_id, height = "440px", decision = NULL) {
   card(
     full_screen = TRUE,
@@ -2877,6 +2904,7 @@ server <- function(input, output, session) {
       write_csv(traffic_r(), file.path(tmpdir, "traffic_lights.csv"))
       write_csv(readiness_r(), file.path(tmpdir, "readiness_score.csv"))
       write_csv(recommendations_r(), file.path(tmpdir, "resource_recommendations.csv"))
+      write_csv(recommendation_verdict_to_df(rec_v2_r()), file.path(tmpdir, "recommendation_verdict.csv"))
       write_csv(cost_impact_r(), file.path(tmpdir, "cost_impact.csv"))
       write_csv(investment_r(), file.path(tmpdir, "investment_ranking.csv"))
       write_csv(timeline_r(), file.path(tmpdir, "resource_timeline.csv"))
