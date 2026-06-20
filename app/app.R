@@ -2995,6 +2995,7 @@ server <- function(input, output, session) {
       req(sim_results())
       tmpdir <- tempfile("audit_package_")
       dir.create(tmpdir)
+      on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
 
       write_csv(sim_results()$summary, file.path(tmpdir, "simulation_summary.csv"))
       if (nrow(sim_results()$well_details) > 0) {
