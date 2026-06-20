@@ -1,0 +1,35 @@
+risk_event,n_trials,n_events
+#
+# ════════════════════════════════════════════════════════════════════
+#  RISK OBSERVATIONS  —  FOR THE BAYESIAN UPDATE TAB (OPTIONAL)
+# ════════════════════════════════════════════════════════════════════
+#  Use this file in the sidebar's "Risk observations CSV" upload
+#  (Bayesian update section). Optional — only needed if you also want
+#  to update risk-event probabilities, not just durations.
+#
+#  WHAT TO DO
+#  1. DELETE the example rows at the bottom of this file.
+#  2. ADD one row per risk event you tracked in the new campaign.
+#  3. risk_event must match (partially, case-insensitive) a row name
+#     in master_risks_assumptions.csv, e.g. "Screen out", "Weather
+#     delay", "Wireline crew unavailable".
+#  4. n_trials / n_events depend on the risk's Scope in the
+#     assumptions file:
+#       stage    scope -> n_trials = total stages pumped this campaign
+#       well     scope -> n_trials = total wells in this campaign
+#       campaign scope -> n_trials = 1 (it either happened or it didn't)
+#     n_events = number of times the risk actually occurred.
+#
+#  The Bayesian Update tab combines these counts with the assumptions
+#  CSV's prior probability (Beta-Binomial update) and reports whether
+#  each risk is Stable / Increasing / Decreasing, with an evidence
+#  strength (weak/moderate/strong) based on how tight the posterior is.
+#
+#  EXAMPLE DATA — replace with your actual new-campaign risk counts.
+#  53 stages and 8 wells pumped this campaign (matches the example
+#  new_campaign_wells_template.csv).
+#
+Screen out,53,4
+Plug pressure test failure,53,5
+Wireline crew unavailable,1,1
+Weather delay,1,0

@@ -273,13 +273,19 @@ plot_bayesian_risk_update <- function(risk_update) {
     )
   }))
 
+  # Single row when there are few panels (avoids squeezing 4-6 facets into
+  # 2 short rows, which collides the free-scale y-axis tick labels).
+  n_panels <- length(unique(curve_df$risk))
+  facet_ncol <- if (n_panels <= 4) n_panels else 3
+
   ggplot(curve_df, aes(x = x, y = density, colour = curve)) +
     geom_line(linewidth = 1.0) +
     geom_vline(data = ref_df, aes(xintercept = xint, colour = curve),
                linetype = "dashed", linewidth = 0.5, show.legend = FALSE) +
     scale_colour_manual(values = c("Prior" = "#0072B2", "Posterior" = "#E69F00"), name = NULL) +
     scale_x_continuous(labels = scales::percent_format(accuracy = 0.1)) +
-    facet_wrap(~ risk, scales = "free", ncol = 3) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 3)) +
+    facet_wrap(~ risk, scales = "free", ncol = facet_ncol) +
     labs(
       title    = "Bayesian risk probability update — prior vs posterior",
       subtitle = "Dashed = prior / posterior mean probability",
@@ -1210,13 +1216,16 @@ plot_sensitivity_tornado <- function(sensitivity, top_n = 14) {
   pct_label <- sprintf("%.0f%%", 100 * sensitivity$scalar_perturb_pct)
   r_pct_lbl <- sprintf("%.0f%%", 100 * sensitivity$risk_perturb_pct)
 
+  # NA delta = perturbation was skipped (e.g. resource already at minimum
+  # feasible count) -- dropped from the chart rather than shown as a
+  # misleading 0 d bar. See the detail table below for the explicit reason.
   ggplot(df_long, aes(x = delta, y = label, fill = category)) +
-    geom_col(alpha = 0.82, width = 0.60, position = "identity") +
+    geom_col(alpha = 0.82, width = 0.60, position = "identity", na.rm = TRUE) +
     geom_vline(xintercept = 0, linewidth = 0.7, colour = "grey25") +
     geom_text(
       aes(label = sprintf("%+.1f d", delta),
           hjust = if_else(delta >= 0, -0.10, 1.10)),
-      size = 3.1, colour = "grey20"
+      size = 3.1, colour = "grey20", na.rm = TRUE
     ) +
     scale_fill_manual(
       values = .SA_CATEGORY_COLOURS,

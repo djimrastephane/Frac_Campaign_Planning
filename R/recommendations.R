@@ -97,6 +97,20 @@ recommend_action <- function(
   status    <- rnk$status[rnk$resource == prim]
 
   worthwhile <- ev_net > 0 && delta_p50 > 0.5
+  conf_band  <- .rec_conf_band(win_rate)
+
+  # Three-way verdict: economic gate first, then statistical confidence.
+  #   Not justified - the schedule saving doesn't cover the added unit.
+  #   Optional      - net positive, but win-rate confidence is Low/Inconclusive.
+  #   Recommended   - net positive and Moderate/High confidence.
+  decision_status <- if (!worthwhile) {
+    "Not justified"
+  } else if (conf_band %in% c("Low", "Inconclusive")) {
+    "Optional"
+  } else {
+    "Recommended"
+  }
+
   action <- if (worthwhile) sprintf("Add 1 %s", noun)
             else sprintf("Hold current configuration (do not add a %s)", noun)
 
@@ -107,17 +121,19 @@ recommend_action <- function(
     sprintf("Expected value = %s  (= %.0f d saved x $%.0fk/d fleet spread - extra unit standby)",
             .fmt_usd(ev_net), delta_p50, spread_rate / 1000),
     sprintf("Confidence = %.0f%% (%s) - duration improves in %.0f%% of paired simulations",
-            100 * win_rate, .rec_conf_band(win_rate), 100 * win_rate)
+            100 * win_rate, conf_band, 100 * win_rate)
   )
   if (!worthwhile) why <- c(why, "Net value is not positive: the schedule saving does not cover the added unit.")
+  if (decision_status == "Optional") why <- c(why, "Net value is positive, but confidence is not yet high enough to call this Recommended.")
 
-  panel <- paste0("Recommendation: ", action, "\nWhy:\n",
+  panel <- paste0("Recommendation: ", action, "  [", decision_status, "]\nWhy:\n",
                   paste0("  * ", why, collapse = "\n"))
 
   list(
     operation_mode = mode,
     recommendation = action,
     worthwhile = worthwhile,
+    decision_status = decision_status,
     bottleneck = prim,
     status = status,
     p90_utilization = p90_util,

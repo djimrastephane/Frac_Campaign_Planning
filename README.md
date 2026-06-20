@@ -88,6 +88,66 @@ The model tracks five resources independently. Each has its own unit count, work
 - Downloadable audit package (zip) with 18+ CSV exports
 - Input fidelity check: simulated vs historical distributions
 
+# Decision-Support Methodology
+
+This app exists to answer one recurring planning question: **given current resources, risk
+assumptions, and historical performance, what is the best next move on a frac campaign — and
+how confident should you be in it?** The sections below explain how each layer of the model
+feeds that answer.
+
+**Planning problem.** Completion engineers and project managers need to decide things like:
+which execution mode to run (conventional vs zipper), how many of each resource to mobilise,
+whether an extra unit is worth its day rate, and whether new field data should change the plan.
+These are commercial and operational decisions, not modelling exercises — every feature in this
+app is built to move one of those decisions forward.
+
+**Simulation approach.** A Monte Carlo engine draws stage/plug durations and risk events from
+historical-well-calibrated (or synthetic, if no history is supplied) distributions and runs the
+full campaign hundreds to thousands of times, producing a P10/P50/P90 duration distribution per
+operation mode rather than a single point estimate.
+
+**Resource-constrained scheduling.** Each simulated run schedules frac, wireline, CT/cleanout,
+milling, and testing units against the well sequence under the chosen execution mode, so
+duration reflects actual equipment contention and hand-off delays, not just summed task time.
+
+**Bottleneck detection.** Per-resource P90 utilization is tracked across all simulated runs;
+the resource closest to saturation is flagged as the binding constraint, with a cascade showing
+what becomes the new constraint once the current one is relieved.
+
+**Recommendation logic.** `recommend_action()` proposes adding one unit of the binding resource,
+then verifies the claim by re-running the simulation with that unit added (same random seed,
+paired comparison) rather than relying on an analytic estimate alone. The output reports the
+recommendation, the evidence behind it, expected P50 and economic impact, a confidence level
+from the paired win-rate, and a three-way verdict — **Recommended**, **Optional**, or
+**Not justified** — so a reviewer can tell at a glance whether the schedule saving actually
+covers the added cost with enough statistical confidence to act on.
+
+**Uncertainty handling.** Sensitivity analysis stress-tests timing assumptions (±20%), risk
+probabilities (±50%), and resource counts (±1 unit) at reduced iteration counts to rank which
+assumptions matter most; a recommendation robustness check separately re-tests whether the
+chosen action still holds under ±15% planning-assumption swings. Both are screening tools —
+final decisions should be confirmed with a full-iteration simulation run.
+
+**Historical learning.** As new completed wells and risk observations come in, a Bayesian
+updater combines them with the historical prior (Normal-conjugate for durations,
+Beta-Binomial for risk probabilities) and reports whether assumptions are Stable, Increasing,
+or Decreasing, and how strong the supporting evidence is, before any planning numbers change.
+
+**Limitations.** This is a planning-level model, not a drilling/completions engineering
+simulator: cost rates, risk probabilities, and duration distributions are only as good as the
+assumptions CSV and historical data supplied. Resource scheduling assumes units are
+interchangeable within a class. Recommendations should be reviewed by an engineer familiar with
+the specific pad layout, contracts, and field conditions before being acted on.
+
+# AI-Assisted Development Note
+
+AI-assisted development tools were used to accelerate the implementation of this application —
+writing and refactoring R/Shiny code, generating test scaffolding, and drafting documentation.
+The operational model, engineering assumptions, workflow logic, and validation review were
+directed by the project owner based on completion and well intervention experience. AI tooling
+did not originate the domain logic; it implemented decisions specified and reviewed by the
+project owner.
+
 ---
 
 # Screenshots

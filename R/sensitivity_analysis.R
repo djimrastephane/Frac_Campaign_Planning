@@ -195,8 +195,10 @@ run_sensitivity_analysis <- function(
       if (nrow(low_row) == 0 || nrow(high_row) == 0) return(NULL)
       # If both directions skipped, variable is irrelevant for this mode
       if (isTRUE(low_row$skipped[1]) && isTRUE(high_row$skipped[1])) return(NULL)
-      low_p50  <- if (isTRUE(low_row$skipped[1]))  base_p50 else low_row$p50_days[1]
-      high_p50 <- if (isTRUE(high_row$skipped[1])) base_p50 else high_row$p50_days[1]
+      low_skipped  <- isTRUE(low_row$skipped[1])
+      high_skipped <- isTRUE(high_row$skipped[1])
+      low_p50  <- if (low_skipped)  NA_real_ else low_row$p50_days[1]
+      high_p50 <- if (high_skipped) NA_real_ else high_row$p50_days[1]
       meta <- meta_df[meta_df$variable == v, ]
       tibble(
         variable       = v,
@@ -207,9 +209,12 @@ run_sensitivity_analysis <- function(
         base_p50       = base_p50,
         low_p50        = low_p50,
         high_p50       = high_p50,
-        low_delta      = low_p50  - base_p50,
-        high_delta     = high_p50 - base_p50,
-        swing          = abs(high_p50 - low_p50)
+        low_skipped    = low_skipped,
+        high_skipped   = high_skipped,
+        low_delta      = if (low_skipped)  NA_real_ else low_p50  - base_p50,
+        high_delta     = if (high_skipped) NA_real_ else high_p50 - base_p50,
+        swing          = abs((if (high_skipped) base_p50 else high_p50) -
+                              (if (low_skipped)  base_p50 else low_p50))
       )
     }))
   }))

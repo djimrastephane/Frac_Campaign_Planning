@@ -65,11 +65,13 @@ fmt_money_short <- function(x) {
   else paste0("$", round(x, 0))
 }
 
-plot_card <- function(header, output_id, height = "440px") {
+plot_card <- function(header, output_id, height = "440px", decision = NULL) {
   card(
     full_screen = TRUE,
     card_header(header),
-    card_body(plotOutput(output_id, height = height), padding = 8)
+    card_body(plotOutput(output_id, height = height), padding = 8),
+    if (!is.null(decision))
+      card_footer(tags$small(class = "text-muted", tags$b("Decision: "), decision))
   )
 }
 
@@ -398,7 +400,8 @@ ui <- page_sidebar(
           full_screen = TRUE,
           card_header("Driver ranking — P50 impact by variable (butterfly tornado)"),
           card_body(plotOutput("sensitivity_tornado_plot", height = "520px")),
-          card_footer(tags$small(class = "text-muted",
+          card_footer(tags$small(class = "text-muted", tags$b("Decision: "),
+            "Ranks assumptions that most affect campaign duration, so planning effort goes to the highest-leverage ones. ",
             "Bar width = P50 shift when assumption is perturbed. Wider bar = stronger influence on schedule. ",
             "Faceted by operation mode when both Conventional and Zipper are simulated."))
         )
@@ -454,9 +457,25 @@ ui <- page_sidebar(
           card_header("Duration update — prior vs posterior predictive"),
           card_body(plotOutput("bayes_duration_plot", height = "260px")),
           card_footer(
+            tags$small(class = "text-muted d-block", tags$b("Decision: "),
+              "Checks whether historical duration assumptions should be updated for future planning."),
             uiOutput("bayes_duration_interp"),
             tags$small(class = "text-muted mt-1 d-block",
               "Blue = prior (historical wells). Gold = posterior (updated). Dashed = P50."))
+        )
+      ),
+      layout_columns(
+        col_widths = c(12),
+        card(
+          full_screen = TRUE,
+          card_header("Risk probability update — prior vs posterior"),
+          card_body(plotOutput("bayes_risk_plot", height = "340px")),
+          card_footer(
+            tags$small(class = "text-muted d-block", tags$b("Decision: "),
+              "Checks whether historical risk-probability assumptions should be updated for future planning."),
+            uiOutput("bayes_risk_interp"),
+            tags$small(class = "text-muted mt-1 d-block",
+              "Blue = prior (assumptions CSV). Gold = posterior (updated with observed counts). Dashed = mean probability."))
         )
       ),
       layout_columns(
@@ -468,18 +487,9 @@ ui <- page_sidebar(
         ),
         card(
           full_screen = TRUE,
-          card_header("Risk probability update — prior vs posterior"),
-          card_body(plotOutput("bayes_risk_plot", height = "240px")),
-          card_footer(
-            uiOutput("bayes_risk_interp"),
-            tags$small(class = "text-muted mt-1 d-block",
-              "Blue = prior (assumptions CSV). Gold = posterior (updated with observed counts). Dashed = mean probability."))
+          card_header("Risk probability summary"),
+          card_body(DT::DTOutput("bayes_risk_table"))
         )
-      ),
-      card(
-        full_screen = TRUE,
-        card_header("Risk probability summary"),
-        card_body(DT::DTOutput("bayes_risk_table"))
       )
     ),
 
@@ -547,10 +557,14 @@ ui <- page_sidebar(
         col_widths = c(6, 6),
         card(full_screen = TRUE,
              card_header("Duration comparison — P50 with P10–P90 range"),
-             card_body(plotOutput("whatif_bars_plot", height = "380px"))),
+             card_body(plotOutput("whatif_bars_plot", height = "380px")),
+             card_footer(tags$small(class = "text-muted", tags$b("Decision: "),
+               "Compares committed planning scenarios side by side to pick the best option."))),
         card(full_screen = TRUE,
              card_header("Duration S-curve overlay"),
-             card_body(plotOutput("whatif_scurve_plot", height = "380px")))
+             card_body(plotOutput("whatif_scurve_plot", height = "380px")),
+             card_footer(tags$small(class = "text-muted", tags$b("Decision: "),
+               "Shows the probability of finishing by any given day across scenarios.")))
       ),
       card(full_screen = TRUE,
            card_header("Side-by-side summary"),
@@ -591,10 +605,13 @@ ui <- page_sidebar(
 
     nav_panel(
       "Risks",
-      plot_card("Schedule risk heatmap — expected delay by well and risk type", "risk_heatmap_plot", "520px"),
-      plot_card("Well risk ranking — total expected delay per well", "well_risk_ranking_plot", "420px"),
+      plot_card("Schedule risk heatmap — expected delay by well and risk type", "risk_heatmap_plot", "520px",
+                decision = "Flags which specific wells and risk types need closer monitoring or mitigation."),
+      plot_card("Well risk ranking — total expected delay per well", "well_risk_ranking_plot", "420px",
+                decision = "Ranks wells by expected schedule impact so attention goes to the highest-risk wells first."),
       table_card("Well risk scores", dt_wrap("well_risk_table", "360px")),
-      plot_card("Expected schedule impact per campaign (tornado)", "tornado_plot", "460px"),
+      plot_card("Expected schedule impact per campaign (tornado)", "tornado_plot", "460px",
+                decision = "Ranks risk events by total expected delay across the campaign, to prioritise mitigation."),
       plot_card("Consequence propagation: direct delay vs induced workload", "consequence_plot", "480px"),
       table_card("Consequence detail by risk", dt_wrap("consequence_table", "400px")),
       plot_card("Top delay contributors", "delay_plot", "460px"),
@@ -605,11 +622,16 @@ ui <- page_sidebar(
 
     nav_panel(
       "Resources",
-      plot_card("Resource utilization: active days and utilization by mode", "gantt_plot", "420px"),
-      plot_card("Mean resource utilization", "resource_plot", "420px"),
-      plot_card("Bottleneck detection (P90 utilization)", "bottleneck_plot", "420px"),
-      plot_card("Estimated schedule improvement from additional resources", "recommendation_plot", "420px"),
-      plot_card("Estimated resource and idle cost impact", "cost_impact_plot", "420px"),
+      plot_card("Resource utilization: active days and utilization by mode", "gantt_plot", "420px",
+                decision = "Identifies which resources are close to becoming campaign bottlenecks."),
+      plot_card("Mean resource utilization", "resource_plot", "420px",
+                decision = "Identifies which resources are close to becoming campaign bottlenecks."),
+      plot_card("Bottleneck detection (P90 utilization)", "bottleneck_plot", "420px",
+                decision = "Shows which resource is most likely to limit the schedule in a worst-case run."),
+      plot_card("Estimated schedule improvement from additional resources", "recommendation_plot", "420px",
+                decision = "Quantifies the P50 days saved if an extra unit of each resource were added."),
+      plot_card("Estimated resource and idle cost impact", "cost_impact_plot", "420px",
+                decision = "Weighs the cost of adding a resource against the cost of leaving it idle."),
       table_card("Recommended actions", dt_wrap("recommendation_table", "320px")),
       table_card("Cost impact detail", dt_wrap("cost_impact_table", "400px")),
       table_card("Utilization detail", dt_wrap("resource_table", "300px")),
@@ -1225,6 +1247,7 @@ server <- function(input, output, session) {
     if (is.null(sa)) return(DT::datatable(tibble(), options = list(dom = "t")))
     pct_s <- sprintf("%.0f%%", 100 * sa$scalar_perturb_pct)
     pct_r <- sprintf("%.0f%%", 100 * sa$risk_perturb_pct)
+    .not_tested <- "Not tested: already at minimum feasible value"
     df <- sa$summary %>%
       left_join(sa$ranking %>% select(variable, rank = rank), by = "variable") %>%
       arrange(rank, operation_mode) %>%
@@ -1234,10 +1257,10 @@ server <- function(input, output, session) {
         Category          = category,
         Mode              = operation_mode,
         `Base P50 (d)`    = round(base_p50, 1),
-        `Low P50 (d)`     = round(low_p50,  1),
-        `Low delta (d)`   = round(low_delta, 2),
-        `High P50 (d)`    = round(high_p50,  1),
-        `High delta (d)`  = round(high_delta, 2),
+        `Low P50 (d)`     = if_else(low_skipped,  .not_tested, sprintf("%.1f", low_p50)),
+        `Low delta (d)`   = if_else(low_skipped,  .not_tested, sprintf("%+.2f", low_delta)),
+        `High P50 (d)`    = if_else(high_skipped, .not_tested, sprintf("%.1f", high_p50)),
+        `High delta (d)`  = if_else(high_skipped, .not_tested, sprintf("%+.2f", high_delta)),
         `Total swing (d)` = round(swing, 2),
         `Contribution %`  = round(contribution_pct, 1)
       )
@@ -1256,12 +1279,17 @@ server <- function(input, output, session) {
 
   output$recommendation_confidence <- renderUI({
     req(sim_results())
-    conf <- combine_recommendation_confidence(rec_v2_r(), robustness_rv())
+    rec  <- rec_v2_r()
+    conf <- combine_recommendation_confidence(rec, robustness_rv())
     badge_class <- switch(conf$level,
       "High" = "bg-success", "Moderate" = "bg-warning text-dark",
       "Low" = "bg-danger", "Inconclusive" = "bg-secondary")
+    verdict_class <- switch(rec$decision_status,
+      "Recommended" = "bg-success", "Optional" = "bg-warning text-dark",
+      "Not justified" = "bg-secondary")
     tagList(
-      tags$span(class = paste("badge", badge_class), conf$label),
+      tags$span(class = paste("badge", verdict_class), rec$decision_status),
+      tags$span(class = paste("badge ms-1", badge_class), conf$label),
       tags$ul(class = "mt-2 mb-2 small text-muted", lapply(conf$detail, tags$li))
     )
   })
@@ -1485,213 +1513,221 @@ server <- function(input, output, session) {
     }
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br)) return(tags$p(class = "text-danger", "Update failed — check the file format."))
-    dur <- br$duration_update
-    ru  <- br$risk_update
 
-    # ---- helpers -------------------------------------------------------------
-    .risk_level <- function(p) {
-      if (p < 0.05) "Low" else if (p < 0.15) "Medium" else "High"
-    }
-    .risk_level_cls <- function(p) {
-      if (p < 0.05) "text-success" else if (p < 0.15) "text-warning" else "text-danger"
-    }
-    .dur_conf <- function(r) {
-      if (r$ci90_lo <= 0 && r$ci90_hi >= 0) "Low" else if (r$n_new >= 10) "High" else "Moderate"
-    }
-    .dur_conf_cls <- function(r) {
-      if (r$ci90_lo <= 0 && r$ci90_hi >= 0) "text-secondary" else if (r$n_new >= 10) "text-success" else "text-warning"
-    }
-    .risk_conf <- function(r) {
-      ci_w <- r$posterior_p95 - r$posterior_p05
-      if (ci_w < 0.03) "High" else if (ci_w < 0.07) "Moderate" else "Low"
-    }
-    .risk_conf_cls <- function(r) {
-      ci_w <- r$posterior_p95 - r$posterior_p05
-      if (ci_w < 0.03) "text-success" else if (ci_w < 0.07) "text-warning" else "text-secondary"
-    }
+    # All evidence strength / decision / recommendation / narrative fields
+    # come from assess_duration_update() / assess_risk_update() in
+    # bayesian_updater.R -- this render function only formats them. See
+    # those functions for the thresholds and reasoning.
+    dur <- assess_duration_update(br$duration_update)
+    ru  <- assess_risk_update(br$risk_update)
+    has_risk <- !is.null(ru) && nrow(ru) > 0
 
-    # ---- derived summaries ---------------------------------------------------
-    n_dur_changed <- sum(vapply(seq_len(nrow(dur)), function(i) {
-      r <- dur[i, ]
-      z <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-      !(z || abs(100 * (r$posterior_mean / r$prior_mean - 1)) < 1)
-    }, logical(1)))
+    .evidence_word <- function(strength) switch(strength, "Strong" = "strong", "Moderate" = "moderate", "weak")
+    .evidence_rank <- c(weak = 1L, moderate = 2L, strong = 3L)
 
-    changed_risks <- if (!is.null(ru) && nrow(ru) > 0)
-      ru[abs(100 * ru$delta_prob) >= 0.3, ] else NULL
-    n_risks_changed <- if (!is.null(changed_risks)) nrow(changed_risks) else 0L
-    any_changed <- n_dur_changed > 0 || n_risks_changed > 0
+    # ---- 0. Campaign Learning Summary card (operational wording, TOP) --------
+    dur_status <- if (all(dur$direction == "Stable")) "Stable" else dur$direction[which.max(abs(dur$delta_mean))]
+    dur_evidence_words <- vapply(dur$evidence_strength, .evidence_word, character(1))
+    dur_ranks <- .evidence_rank[dur_evidence_words]
+    dur_evidence <- names(dur_ranks)[which.min(dur_ranks)]
 
-    action_text <- if (!any_changed) {
-      "No updates required — continue monitoring."
-    } else if (n_dur_changed == 0) {
-      "Update risk register, retain duration assumptions."
-    } else if (n_risks_changed == 0) {
-      "Update duration planning estimates, retain risk assumptions."
+    if (has_risk) {
+      risk_status <- if (all(ru$direction == "Stable")) "Stable" else ru$direction[which.max(abs(ru$delta_prob))]
+      risk_evidence_words <- vapply(ru$evidence_strength, .evidence_word, character(1))
+      risk_ranks <- .evidence_rank[risk_evidence_words]
+      risk_evidence <- names(risk_ranks)[which.min(risk_ranks)]
     } else {
-      "Update duration estimates and risk register."
+      risk_status <- "Not assessed"
+      risk_evidence <- "weak"
     }
 
-    # ---- 1. Business Impact card (TOP) ---------------------------------------
-    impact_rows <- c(
-      unlist(lapply(seq_len(nrow(dur)), function(i) {
-        r   <- dur[i, ]
-        z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-        pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
-        if (z || abs(pct) < 1)
-          list(list(icon = "\U2713", cls = "text-success", txt = sprintf("%s unchanged", r$label)))
-        else
-          list(list(icon = "\U26A0", cls = "text-danger",
-                    txt = sprintf("%s %s %.1f%% (%.3f d → %.3f d)",
-                                  r$label, if (pct > 0) "increased" else "decreased",
-                                  abs(pct), r$prior_mean, r$posterior_mean)))
-      })),
-      if (!is.null(ru) && nrow(ru) > 0) {
-        unlist(lapply(seq_len(nrow(ru)), function(i) {
-          r       <- ru[i, ]
-          dp      <- 100 * r$delta_prob
-          rel_pct <- if (r$prior_prob > 0) dp / r$prior_prob * 100 else 0
-          if (abs(dp) < 0.3)
-            list(list(icon = "\U2713", cls = "text-success", txt = sprintf("%s unchanged", r$risk_event)))
-          else
-            list(list(icon = "\U26A0", cls = "text-danger",
-                      txt = sprintf("%s risk %.1f%% → %.1f%% (%+.1fpp, %+.0f%% relative)",
-                                    r$risk_event,
-                                    100 * r$prior_prob, 100 * r$posterior_mean,
-                                    dp, rel_pct)))
-        }))
-      } else list()
-    )
+    all_levels <- c(dur$recommendation_level, if (has_risk) ru$recommendation_level)
+    action_text <- if (any(all_levels == "Recommended")) {
+      "Update flagged assumptions — see Decision column below."
+    } else if (any(all_levels == "Optional")) {
+      "Review flagged items; no urgent update needed."
+    } else {
+      "Continue monitoring — no updates currently justified."
+    }
 
-    impact_card <- card(
-      class = "mb-3",
-      style = if (any_changed) "border: 2px solid #dc3545;" else "border: 2px solid #198754;",
-      card_header(
-        class = if (any_changed) "bg-danger text-white" else "bg-success text-white",
-        tags$div(class = "d-flex justify-content-between align-items-center",
-          tags$span(class = "fw-bold fs-6", "Business Impact"),
-          tags$span(class = "small",
-            if (any_changed) "\U26A0 Assumptions updated — re-run Monte Carlo" else "\U2713 No changes required")
-        )
-      ),
-      card_body(
-        tags$ul(class = "mb-0 ps-3",
-          lapply(impact_rows, function(item) {
-            tags$li(
-              tags$span(class = paste("fw-bold me-1", item$cls), item$icon),
-              item$txt
-            )
-          })
-        ),
-        if (any_changed)
-          tags$div(class = "mt-2 pt-2 border-top fw-semibold text-primary small",
-            "\U25B6 Monte Carlo forecast should be re-run with updated assumptions")
-      )
-    )
-
-    # ---- 2. Management Briefing KPI row --------------------------------------
-    dur_status_txt <- if (n_dur_changed == 0) "Stable" else sprintf("%d updated", n_dur_changed)
-    dur_status_cls <- if (n_dur_changed == 0) "text-success" else "text-warning"
-    risk_status_txt <- if (n_risks_changed == 0) "None" else sprintf("%d increased", n_risks_changed)
-    risk_status_cls <- if (n_risks_changed == 0) "text-success" else "text-danger"
-    action_cls <- if (any_changed) "text-danger fw-bold" else "text-success"
-    action_short <- if (any_changed) "Yes" else "No"
-
-    kpi_card <- card(
-      class = "mb-3",
+    learning_summary_card <- card(
+      class = "mb-3 border-primary",
+      card_header(class = "bg-primary text-white fw-bold", "Campaign Learning Summary"),
       card_body(class = "py-2",
         tags$div(class = "row text-center g-0",
           tags$div(class = "col border-end",
-            tags$div(class = "small text-muted fw-semibold", "Wells analysed"),
-            tags$div(class = "fs-5 fw-bold", br$n_prior + br$n_new)
+            tags$div(class = "small text-muted fw-semibold", "Historical wells"),
+            tags$div(class = "fs-5 fw-bold", br$n_prior)
           ),
           tags$div(class = "col border-end",
-            tags$div(class = "small text-muted fw-semibold", "New wells added"),
+            tags$div(class = "small text-muted fw-semibold", "New wells"),
             tags$div(class = "fs-5 fw-bold", br$n_new)
           ),
           tags$div(class = "col border-end",
-            tags$div(class = "small text-muted fw-semibold", "Duration status"),
-            tags$div(class = paste("fs-5 fw-bold", dur_status_cls), dur_status_txt)
+            tags$div(class = "small text-muted fw-semibold", "Duration assumptions"),
+            tags$div(class = "fs-5 fw-bold", sprintf("%s (evidence %s)", dur_status, dur_evidence))
           ),
           tags$div(class = "col border-end",
-            tags$div(class = "small text-muted fw-semibold", "Risks increased"),
-            tags$div(class = paste("fs-5 fw-bold", risk_status_cls), risk_status_txt)
+            tags$div(class = "small text-muted fw-semibold", "Risk assumptions"),
+            tags$div(class = "fs-5 fw-bold", sprintf("%s (evidence %s)", risk_status, risk_evidence))
           ),
           tags$div(class = "col",
-            tags$div(class = "small text-muted fw-semibold", "Action required"),
-            tags$div(class = paste("fs-5 fw-bold", action_cls), action_short)
+            tags$div(class = "small text-muted fw-semibold", "Recommended action"),
+            tags$div(class = "fs-6 fw-bold text-primary", action_text)
           )
         )
       )
     )
 
-    # ---- 3. Key Changes list -------------------------------------------------
-    key_change_rows <- c(
-      lapply(seq_len(nrow(dur)), function(i) {
-        r   <- dur[i, ]
-        z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-        pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
-        stable <- z || abs(pct) < 1
-        emoji  <- if (stable) "\U1F7E2" else if (pct > 0) "\U1F534" else "\U1F7E2"
-        change_txt <- if (stable)
-          sprintf("%.3f d (unchanged)", r$prior_mean)
-        else
-          sprintf("%.3f d → %.3f d (%+.1f%%)", r$prior_mean, r$posterior_mean, pct)
-        tags$div(class = "d-flex align-items-center py-1 border-bottom",
-          tags$span(class = "me-2 fs-5", emoji),
-          tags$span(class = "fw-semibold me-2", r$label),
-          tags$span(class = if (stable) "text-secondary" else "text-danger", change_txt)
-        )
-      }),
-      if (!is.null(ru) && nrow(ru) > 0) {
-        lapply(seq_len(nrow(ru)), function(i) {
-          r       <- ru[i, ]
-          dp      <- 100 * r$delta_prob
-          rel_pct <- if (r$prior_prob > 0) dp / r$prior_prob * 100 else 0
-          stable  <- abs(dp) < 0.3
-          emoji   <- if (stable) "\U1F7E2" else if (dp > 1.5) "\U1F534" else "\U1F7E0"
-          change_txt <- if (stable)
-            sprintf("%.1f%% (unchanged)", 100 * r$prior_prob)
-          else
-            sprintf("%.1f%% → %.1f%% (%+.1fpp, %+.0f%% relative)",
-                    100 * r$prior_prob, 100 * r$posterior_mean, dp, rel_pct)
-          level <- .risk_level(r$posterior_mean)
-          level_cls <- .risk_level_cls(r$posterior_mean)
-          tags$div(class = "d-flex align-items-center py-1 border-bottom",
-            tags$span(class = "me-2 fs-5", emoji),
-            tags$span(class = "fw-semibold me-2", r$risk_event),
-            tags$span(class = if (stable) "text-secondary" else "text-danger", change_txt),
-            tags$span(class = paste("badge ms-2", level_cls,
-                                    if (r$posterior_mean >= 0.15) "bg-danger text-white"
-                                    else if (r$posterior_mean >= 0.05) "bg-warning text-dark"
-                                    else "bg-success text-white"),
-                      paste("Risk:", level))
-          )
-        })
-      } else list()
-    )
-
-    changes_card <- card(
+    # ---- 0b. Decision Rules card (static reference, always visible) ----------
+    # Plain-English statement of the rule the engine actually runs -- see
+    # assess_duration_update() / assess_risk_update() in bayesian_updater.R
+    # for the code that implements exactly this. Numbers below are pulled
+    # from BAYES_DECISION_THRESHOLDS so this card can never drift out of
+    # sync with the logic.
+    th <- BAYES_DECISION_THRESHOLDS
+    decision_rules_card <- card(
       class = "mb-3",
-      card_header(tags$span(class = "fw-bold", "Key Changes")),
-      card_body(do.call(tagList, key_change_rows))
+      card_header(tags$span(class = "fw-bold", "Decision Rules")),
+      card_body(
+        tags$div(class = "row",
+          tags$div(class = "col-md-6",
+            tags$h6(class = "text-uppercase text-muted small", "Duration assumptions"),
+            tags$p(class = "mb-1", tags$b("Retain assumption")),
+            tags$ul(class = "small text-muted",
+              tags$li("Posterior shift not statistically meaningful"),
+              tags$li("Credible interval includes zero"),
+              tags$li("Evidence = Weak")
+            ),
+            tags$p(class = "mb-1", tags$b("Review assumption")),
+            tags$ul(class = "small text-muted",
+              tags$li("Moderate evidence"),
+              tags$li("Shift approaching operational significance")
+            ),
+            tags$p(class = "mb-1", tags$b("Update assumption")),
+            tags$ul(class = "small text-muted",
+              tags$li("Strong evidence"),
+              tags$li("Credible interval excludes zero"),
+              tags$li("Operationally meaningful shift")
+            )
+          ),
+          tags$div(class = "col-md-6",
+            tags$h6(class = "text-uppercase text-muted small", "Risk assumptions"),
+            tags$p(class = "mb-1", tags$b("Update assumption")),
+            tags$ul(class = "small text-muted",
+              tags$li("Evidence = Moderate or Strong"),
+              tags$li("Minimum observation count met"),
+              tags$li("Posterior shift exceeds update threshold")
+            ),
+            tags$p(class = "mb-1", tags$b("Monitor")),
+            tags$ul(class = "small text-muted",
+              tags$li("Signal exists but evidence remains limited"),
+              tags$li("Additional observations recommended")
+            ),
+            tags$p(class = "mb-1", tags$b("No action")),
+            tags$ul(class = "small text-muted",
+              tags$li("Shift is small or evidence remains weak")
+            )
+          )
+        ),
+        tags$p(class = "small text-muted mt-2 mb-0 fst-italic",
+          "Recommendations are generated automatically from Bayesian evidence, sample size and posterior shift thresholds.")
+      )
     )
 
-    # ---- 4a. Duration detail card (table with Confidence column) -------------
+    # ---- 0c. Decision Thresholds (expandable, numbers read live from code) ---
+    decision_thresholds_card <- tags$details(class = "mb-3",
+      tags$summary(class = "fw-bold", style = "cursor: pointer;", "Decision Thresholds"),
+      tags$div(class = "small text-muted mt-2",
+        tags$p(class = "mb-1", tags$b("Update assumption"), " (risk events) requires ALL of:"),
+        tags$ul(
+          tags$li(sprintf("≥ %d observations (trials)", th$min_trials_for_update)),
+          tags$li(sprintf("≥ %d events", th$min_events_for_update)),
+          tags$li(sprintf("≥ %.0f percentage-point posterior shift", 100 * th$min_posterior_shift_pp)),
+          tags$li(sprintf("≥ %.0f%% relative shift from the prior probability (e.g. roughly doubling) -- ",
+                          100 * th$min_relative_shift),
+            "this stops a modest move on a larger base rate from being treated the same as a large move on a small one"),
+          tags$li("Moderate or Strong evidence")
+        ),
+        tags$p(class = "mb-1 mt-2", tags$b("Evidence strength"), " is driven by sample size:"),
+        tags$ul(
+          tags$li(sprintf("Strong: ≥ %d observations, AND a narrow posterior credible interval, AND a direction that isn't just prior-anchoring noise", th$min_n_for_strong_evidence)),
+          tags$li(sprintf("Moderate: ≥ %d observations", th$min_n_for_moderate_evidence)),
+          tags$li(sprintf("Weak: < %d observations", th$min_n_for_moderate_evidence))
+        ),
+        tags$p(class = "mb-0 mt-2 fst-italic",
+          "All thresholds are defined once in BAYES_DECISION_THRESHOLDS (R/bayesian_updater.R) and used directly by the code that produces every Decision and Decision Reason shown on this page.")
+      )
+    )
+
+    # ---- 1. Bayesian Learning Summary (structured executive narrative) -------
+    # Replaces the old blanket "observed events are more frequent than
+    # assumed" statement with per-parameter / per-risk lines that are
+    # explicit about direction, evidence strength, and recommendation --
+    # never asserting a directional claim that the evidence doesn't support.
+    .decision_badge_cls <- function(level) switch(level,
+      "Recommended" = "bg-danger text-white", "Optional" = "bg-warning text-dark", "bg-secondary")
+
+    dur_all_retain <- all(dur$decision == "Retain assumption")
+    dur_summary_lines <- if (dur_all_retain) {
+      list(tags$div(class = "py-1",
+        tags$span(class = "fw-semibold me-2", "Stable"),
+        tags$span(class = "text-muted me-2", sprintf("Evidence %s.", tolower(dur$evidence_strength[1]))),
+        tags$span(class = "text-success", "No updates recommended.")
+      ))
+    } else {
+      lapply(seq_len(nrow(dur)), function(i) {
+        r <- dur[i, ]
+        tags$div(class = "py-1 border-bottom",
+          tags$span(class = "fw-semibold me-2", r$label),
+          tags$span(class = if (r$direction == "Stable") "text-secondary" else "text-danger",
+            sprintf("%s (%+.3f d)", r$direction, r$delta_mean)),
+          tags$span(class = "badge ms-2", .decision_badge_cls(r$recommendation_level), r$decision),
+          tags$div(class = "small text-muted mt-1", sprintf("Evidence %s. %s", tolower(r$evidence_strength), r$recommendation_text))
+        )
+      })
+    }
+
+    # Every risk event gets the same fully-traceable sentence structure --
+    # observed counts, evidence strength, threshold outcome, recommendation
+    # -- so no event's decision relies on wording the others don't get.
+    risk_summary_lines <- if (!has_risk) {
+      list(tags$p(class = "text-muted small mb-0",
+        "Upload a risk observations CSV to update risk-event probabilities."))
+    } else {
+      lapply(seq_len(nrow(ru)), function(i) {
+        r <- ru[i, ]
+        tags$div(class = "py-1 border-bottom",
+          tags$span(class = "fw-semibold me-2", r$risk_event),
+          tags$span(class = "badge ms-2", .decision_badge_cls(r$recommendation_level), r$decision),
+          tags$div(class = "small text-muted mt-1", r$narrative_full)
+        )
+      })
+    }
+
+    learning_narrative_card <- card(
+      class = "mb-3",
+      card_header(tags$span(class = "fw-bold", "Bayesian Learning Summary")),
+      card_body(
+        tags$h6(class = "text-muted small text-uppercase mb-1", "Duration assumptions"),
+        do.call(tagList, dur_summary_lines),
+        tags$h6(class = "text-muted small text-uppercase mb-1 mt-3", "Risk assumptions"),
+        do.call(tagList, risk_summary_lines)
+      )
+    )
+
+    # ---- 2a. Duration detail card (table with Evidence + Decision + Reason) --
     dur_rows <- lapply(seq_len(nrow(dur)), function(i) {
-      r   <- dur[i, ]
-      z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-      pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
-      conf     <- .dur_conf(r)
-      conf_cls <- .dur_conf_cls(r)
-      chg_cls  <- if (z || abs(pct) < 1) "text-secondary" else if (pct > 0) "text-danger" else "text-success"
+      r <- dur[i, ]
+      chg_cls <- if (r$direction == "Stable") "text-secondary" else if (r$direction == "Increasing") "text-danger" else "text-success"
       tags$tr(
         tags$td(r$label),
         tags$td(sprintf("%.3f d", r$prior_mean)),
         tags$td(sprintf("%.3f d", r$posterior_mean)),
-        tags$td(class = chg_cls,
-          if (z || abs(pct) < 1) "Stable" else sprintf("%+.1f%%", pct)),
-        tags$td(class = conf_cls, conf)
+        tags$td(class = chg_cls, r$direction),
+        tags$td(r$evidence_strength),
+        tags$td(tags$span(class = paste("badge", .decision_badge_cls(r$recommendation_level)), r$decision)),
+        tags$td(class = "small text-muted", r$decision_reason)
       )
     })
 
@@ -1706,7 +1742,7 @@ server <- function(input, output, session) {
           tags$thead(
             tags$tr(
               tags$th("Parameter"), tags$th("Prior"), tags$th("Updated"),
-              tags$th("Change"), tags$th("Confidence")
+              tags$th("Direction"), tags$th("Evidence"), tags$th("Decision"), tags$th("Decision Reason")
             )
           ),
           tags$tbody(do.call(tagList, dur_rows))
@@ -1714,26 +1750,19 @@ server <- function(input, output, session) {
       )
     )
 
-    # ---- 4b. Risk detail card ------------------------------------------------
-    risk_card <- if (!is.null(ru) && nrow(ru) > 0) {
+    # ---- 2b. Risk detail card (table with Evidence + Decision + Reason) ------
+    risk_card <- if (has_risk) {
       risk_rows_ui <- lapply(seq_len(nrow(ru)), function(i) {
-        r       <- ru[i, ]
-        dp      <- 100 * r$delta_prob
-        rel_pct <- if (r$prior_prob > 0) dp / r$prior_prob * 100 else 0
-        conf     <- .risk_conf(r)
-        conf_cls <- .risk_conf_cls(r)
-        level     <- .risk_level(r$posterior_mean)
-        level_cls <- .risk_level_cls(r$posterior_mean)
-        chg_cls  <- if (abs(dp) < 0.3) "text-secondary" else if (dp > 0) "text-danger" else "text-success"
+        r <- ru[i, ]
+        chg_cls <- if (r$direction == "Stable") "text-secondary" else if (r$direction == "Increasing") "text-danger" else "text-success"
         tags$tr(
           tags$td(r$risk_event),
           tags$td(sprintf("%.1f%%", 100 * r$prior_prob)),
           tags$td(sprintf("%.1f%%", 100 * r$posterior_mean)),
-          tags$td(class = chg_cls,
-            if (abs(dp) < 0.3) "Stable"
-            else sprintf("%+.1fpp (%+.0f%%)", dp, rel_pct)),
-          tags$td(class = level_cls, level),
-          tags$td(class = conf_cls, conf)
+          tags$td(class = chg_cls, sprintf("%s (%+.1fpp, %.0f%% rel.)", r$direction, 100 * r$delta_prob, 100 * r$rel_change)),
+          tags$td(r$evidence_strength),
+          tags$td(tags$span(class = paste("badge", .decision_badge_cls(r$recommendation_level)), r$decision)),
+          tags$td(class = "small text-muted", r$decision_reason)
         )
       })
       card(
@@ -1743,7 +1772,7 @@ server <- function(input, output, session) {
             tags$thead(
               tags$tr(
                 tags$th("Event"), tags$th("Prior"), tags$th("Updated"),
-                tags$th("Change"), tags$th("Risk level"), tags$th("Confidence")
+                tags$th("Change"), tags$th("Evidence"), tags$th("Decision"), tags$th("Decision Reason")
               )
             ),
             tags$tbody(do.call(tagList, risk_rows_ui))
@@ -1760,9 +1789,10 @@ server <- function(input, output, session) {
 
     # ---- Assemble ------------------------------------------------------------
     tagList(
-      impact_card,
-      kpi_card,
-      changes_card,
+      learning_summary_card,
+      decision_rules_card,
+      decision_thresholds_card,
+      learning_narrative_card,
       tags$div(class = "row g-3 mt-0",
         tags$div(class = "col-md-6", dur_card),
         tags$div(class = "col-md-6", risk_card)
@@ -1781,7 +1811,7 @@ server <- function(input, output, session) {
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br) || is.null(br$duration_update))
       return(DT::datatable(tibble(), options = list(dom = "t")))
-    df <- br$duration_update %>%
+    df <- assess_duration_update(br$duration_update) %>%
       transmute(
         Parameter         = label,
         `Prior wells`     = n_prior,
@@ -1792,47 +1822,33 @@ server <- function(input, output, session) {
         `Post. P50 (d)`   = round(posterior_p50,   3),
         `Post. P10–P90`   = sprintf("%.3f – %.3f", posterior_p10, posterior_p90),
         `Shift (d)`       = sprintf("%+.4f", delta_mean),
-        `90% CI for shift` = sprintf("[%+.4f, %+.4f]", ci90_lo, ci90_hi)
+        `90% CI for shift` = sprintf("[%+.4f, %+.4f]", ci90_lo, ci90_hi),
+        Evidence          = evidence_strength,
+        Decision          = decision,
+        `Decision Reason` = decision_reason
       )
     DT::datatable(df, rownames = FALSE,
                   options = list(dom = "t", scrollX = TRUE)) %>%
       DT::formatStyle("Shift (d)",
-        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00")))
+        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00"))) %>%
+      DT::formatStyle("Decision",
+        backgroundColor = DT::styleEqual(
+          c("Retain assumption", "Review assumption", "Update assumption"),
+          c("#d4edda", "#fff3cd", "#f8d7da")))
   })
 
   output$bayes_duration_interp <- renderUI({
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br)) return(NULL)
-    dur <- br$duration_update
-    msgs <- vapply(seq_len(nrow(dur)), function(i) {
-      r <- dur[i, ]
-      z   <- r$ci90_lo <= 0 && r$ci90_hi >= 0
-      pct <- 100 * (r$posterior_mean / r$prior_mean - 1)
-      if (z || abs(pct) < 1)
-        sprintf("%s: curves nearly identical — duration assumption is stable.", r$label)
-      else if (pct > 0)
-        sprintf("%s: posterior shifted right — new wells are running %.1f%% longer than historical.", r$label, pct)
-      else
-        sprintf("%s: posterior shifted left — new wells are running %.1f%% shorter than historical.", r$label, abs(pct))
-    }, character(1))
-    tags$p(class = "small text-primary mb-0 fw-semibold", paste(msgs, collapse = " "))
+    dur <- assess_duration_update(br$duration_update)
+    tags$p(class = "small text-primary mb-0 fw-semibold", paste(dur$narrative_full, collapse = " "))
   })
 
   output$bayes_risk_interp <- renderUI({
     br <- tryCatch(bayes_result_r(), error = function(e) NULL)
     if (is.null(br) || is.null(br$risk_update) || nrow(br$risk_update) == 0) return(NULL)
-    ru <- br$risk_update
-    msgs <- vapply(seq_len(nrow(ru)), function(i) {
-      r  <- ru[i, ]
-      dp <- 100 * r$delta_prob
-      if (abs(dp) < 0.3)
-        sprintf("%s: posterior overlaps prior — observed rate consistent with planning assumption.", r$risk_event)
-      else if (dp > 0)
-        sprintf("%s: posterior shifted right — observed events are more frequent than assumed.", r$risk_event)
-      else
-        sprintf("%s: posterior shifted left — observed events are less frequent than assumed.", r$risk_event)
-    }, character(1))
-    tags$p(class = "small text-primary mb-0 fw-semibold", paste(msgs, collapse = " "))
+    ru <- assess_risk_update(br$risk_update)
+    tags$p(class = "small text-primary mb-0 fw-semibold", paste(ru$narrative_full, collapse = " "))
   })
 
   output$bayes_risk_plot <- renderPlot({
@@ -1847,20 +1863,29 @@ server <- function(input, output, session) {
       return(DT::datatable(
         tibble(Note = "Upload risk observations CSV to see Beta-Binomial risk updates."),
         rownames = FALSE, options = list(dom = "t")))
-    df <- ru %>%
+    df <- assess_risk_update(ru) %>%
       transmute(
         `Risk event`      = risk_event,
         `Prior prob.`     = sprintf("%.3f (%.1f%%)", prior_prob, 100 * prior_prob),
         `Trials`          = n_trials,
         `Events`          = n_events,
+        `Observed freq.`  = sprintf("%.1f%%", 100 * observed_freq),
         `Post. mean`      = sprintf("%.3f (%.1f%%)", posterior_mean, 100 * posterior_mean),
         `Post. 90% CI`    = sprintf("[%.3f, %.3f]", posterior_p05, posterior_p95),
-        `Shift`           = sprintf("%+.4f", delta_prob)
+        `Shift`           = sprintf("%+.4f", delta_prob),
+        `Relative shift`  = sprintf("%.0f%%", 100 * rel_change),
+        Evidence          = evidence_strength,
+        Decision          = decision,
+        `Decision Reason` = decision_reason
       )
     DT::datatable(df, rownames = FALSE,
                   options = list(dom = "t", scrollX = TRUE)) %>%
       DT::formatStyle("Shift",
-        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00")))
+        color = DT::styleInterval(c(-1e-9, 1e-9), c("#009E73", "black", "#D55E00"))) %>%
+      DT::formatStyle("Decision",
+        backgroundColor = DT::styleEqual(
+          c("No action", "Monitor", "Update assumption"),
+          c("#d4edda", "#fff3cd", "#f8d7da")))
   })
 
   # Apply: merge new wells into the bootstrap pool used by the simulation.

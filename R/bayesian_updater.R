@@ -233,6 +233,291 @@ run_bayesian_update <- function(
   )
 }
 
+# ---- Evidence strength & decision engine --------------------------------------
+#
+# Everything below this point is a POST-PROCESSING layer on top of the
+# posterior numbers computed above. It does not touch any Bayesian
+# calculation, posterior, or credible interval -- it only classifies and
+# narrates results that already exist in duration_update / risk_update, so
+# every recommendation stays traceable to those columns.
+#
+# This is a planning-level screening heuristic, not a formal hypothesis test.
+# ALL decision thresholds live in this one block (BAYES_DECISION_THRESHOLDS)
+# so the rule is auditable and adjustable in a single place -- nothing below
+# this block hardcodes a number. The app's "Decision Thresholds" panel reads
+# directly from this list, so the UI can never drift out of sync with the
+# code that actually drives the recommendation.
+#
+# Thresholds are deliberately conservative (it takes a reasonably large
+# sample AND a reasonably large shift before this engine will say "update
+# the assumption") because false-positive assumption changes are more
+# costly to a campaign plan than waiting one more well for more evidence.
+# -----------------------------------------------------------------------------
+
+BAYES_DECISION_THRESHOLDS <- list(
+  # Evidence strength (applies to both duration parameters and risk events).
+  # "n" is new wells for duration, trials for risk.
+  min_n_for_strong_evidence   = 30,   # n >= this (+ narrow CI + consistent direction) => "Strong"
+  min_n_for_moderate_evidence = 10,   # n >= this => "Moderate"; below => "Weak"
+
+  # Risk "Update assumption" gate -- ALL four conditions below must hold.
+  min_trials_for_update    = 30,      # MIN_TRIALS_FOR_UPDATE
+  min_events_for_update    = 3,       # MIN_EVENTS_FOR_UPDATE
+  min_posterior_shift_pp   = 0.02,    # MIN_POSTERIOR_SHIFT_PP -- 2 percentage points (0-1 scale)
+  min_relative_shift       = 1.0,     # additional gate: posterior must move by >=100% relative
+                                       # to the prior probability. Without this, two risks with
+                                       # the same trial count and a similar absolute pp shift but
+                                       # very different base rates (e.g. a small risk that roughly
+                                       # doubled vs a larger risk that crept up modestly) would be
+                                       # treated identically by the absolute-pp gate alone.
+
+  # Risk "Monitor" gate -- a Weak-evidence event still needs SOME relative
+  # movement to be worth watching; a near-zero shift with weak evidence
+  # goes straight to "No action" instead.
+  min_relative_shift_for_monitor = 0.5,
+
+  # Credible-interval "narrow enough to be confident" cutoffs.
+  duration_ci_narrow_rel = 0.5,   # duration: 90% CI width < 50% of |prior_mean|
+  risk_ci_narrow_pp      = 0.05   # risk: 90% CI width < 5 percentage points
+)
+
+#' Evidence-strength hierarchy (Strong > Moderate > Weak).
+#' Strong requires a decent sample AND a narrow posterior CI AND a direction
+#' that is not just prior-anchoring noise (CI excludes the no-change point).
+#' Moderate/Weak are governed by sample size alone -- with few observations
+#' there usually isn't enough information to assess CI tightness or
+#' direction reliably, so sample size is the deciding factor.
+.evidence_strength <- function(n_obs, ci_narrow, direction_consistent) {
+  th <- BAYES_DECISION_THRESHOLDS
+  if (isTRUE(n_obs >= th$min_n_for_strong_evidence) && isTRUE(ci_narrow) && isTRUE(direction_consistent)) {
+    "Strong"
+  } else if (isTRUE(n_obs >= th$min_n_for_moderate_evidence)) {
+    "Moderate"
+  } else {
+    "Weak"
+  }
+}
+
+#' Convert small integers to English words for readable narrative text
+#' ("Four events" rather than "4 events"). Falls back to the numeral for
+#' anything above ten.
+.num_word <- function(n) {
+  words <- c("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+  if (n >= 0 && n <= 10) words[n + 1] else as.character(n)
+}
+
+.cap1 <- function(s) paste0(toupper(substring(s, 1, 1)), substring(s, 2))
+
+#' Classify a duration_update tibble (output of bayesian_update_durations())
+#' with evidence strength, a Stable/Meaningful-change statistical decision,
+#' an engineering decision (Retain / Review / Update assumption), a 3-level
+#' recommendation, and narrative text that separates the observed new-well
+#' mean from the posterior estimate (no posterior-vs-prior language implies
+#' an observed-data claim it doesn't support).
+#'
+#' Decision rule (see BAYES_DECISION_THRESHOLDS for the numbers):
+#'   Retain assumption -- credible interval for the shift includes zero
+#'                        (posterior shift is not statistically meaningful).
+#'   Review assumption -- CI excludes zero, but evidence is only Moderate
+#'                        (shift is approaching, but hasn't reached, the
+#'                        strength needed to act on it).
+#'   Update assumption -- CI excludes zero AND evidence is Strong.
+assess_duration_update <- function(duration_update) {
+  if (is.null(duration_update) || nrow(duration_update) == 0) return(duration_update)
+  th <- BAYES_DECISION_THRESHOLDS
+
+  duration_update %>%
+    rowwise() %>%
+    mutate(
+      ci_width         = ci90_hi - ci90_lo,
+      ci_excludes_zero = !(ci90_lo <= 0 & ci90_hi >= 0),
+      ci_narrow        = ci_width < th$duration_ci_narrow_rel * abs(prior_mean),
+      evidence_strength = .evidence_strength(n_new, ci_narrow, ci_excludes_zero),
+      statistical_decision = if (ci_excludes_zero) "Meaningful change" else "Stable",
+      direction = dplyr::case_when(
+        !ci_excludes_zero            ~ "Stable",
+        posterior_mean > prior_mean  ~ "Increasing",
+        TRUE                         ~ "Decreasing"
+      ),
+      decision = dplyr::case_when(
+        !ci_excludes_zero                               ~ "Retain assumption",
+        ci_excludes_zero & evidence_strength == "Strong" ~ "Update assumption",
+        TRUE                                             ~ "Review assumption"
+      ),
+      recommendation_level = dplyr::case_when(
+        decision == "Update assumption" ~ "Recommended",
+        decision == "Review assumption" ~ "Optional",
+        TRUE                            ~ "Not justified"
+      ),
+      recommendation_text = dplyr::case_when(
+        decision == "Retain assumption" ~
+          "No update required - the shift is within the credible range of the new observations.",
+        decision == "Review assumption" ~
+          "A shift was detected but evidence is not yet Strong - collect more data before updating the assumption.",
+        TRUE ~
+          sprintf("Update planning assumption to %.3f d (from %.3f d).", posterior_mean, prior_mean)
+      ),
+      decision_reason = dplyr::case_when(
+        decision == "Retain assumption" ~
+          sprintf("90%% credible interval for the shift includes zero [%+.3f, %+.3f]. Evidence %s.",
+                  ci90_lo, ci90_hi, tolower(evidence_strength)),
+        decision == "Review assumption" ~
+          sprintf("Credible interval excludes zero [%+.3f, %+.3f], but evidence is only %s (n=%d new wells).",
+                  ci90_lo, ci90_hi, tolower(evidence_strength), n_new),
+        TRUE ~
+          sprintf("Credible interval excludes zero [%+.3f, %+.3f] with %s evidence (n=%d new wells). Update threshold met.",
+                  ci90_lo, ci90_hi, tolower(evidence_strength), n_new)
+      ),
+      narrative_observed = sprintf(
+        "New wells observed mean: %.3f d (n=%d) vs historical prior mean: %.3f d (n=%d).",
+        new_mean, n_new, prior_mean, n_prior),
+      narrative_posterior = sprintf(
+        "The Bayesian posterior estimate shifted from %.3f d to %.3f d.", prior_mean, posterior_mean),
+      narrative_interpretation = dplyr::case_when(
+        evidence_strength == "Weak" ~
+          sprintf("Insufficient evidence to conclude a meaningful change in %s.", tolower(label)),
+        direction == "Increasing" ~ "Evidence suggests this duration may be taking longer than assumed.",
+        direction == "Decreasing" ~ "Evidence suggests this duration may be completing faster than assumed.",
+        TRUE ~ "Evidence is consistent with the current assumption."
+      ),
+      narrative_full = sprintf("%s. %s %s Recommendation: %s.",
+        narrative_posterior, narrative_observed, decision_reason, tolower(decision))
+    ) %>%
+    ungroup()
+}
+
+#' Classify a risk_update tibble (output of bayesian_update_risks()) with
+#' evidence strength, an engineering decision (Update assumption / Monitor /
+#' No action), a 3-level recommendation, a one-line audit-ready Decision
+#' Reason, and narrative text that distinguishes the raw observed frequency
+#' (events/trials) from the Bayesian posterior estimate -- the posterior can
+#' move due to prior-anchoring even when the raw observed rate hasn't
+#' meaningfully changed, and the narrative must not conflate the two.
+#'
+#' Decision rule (see BAYES_DECISION_THRESHOLDS for the numbers):
+#'   Update assumption -- evidence is Moderate or Strong, AND trials/events/
+#'                        absolute shift all clear their minimums, AND the
+#'                        shift is also large relative to the prior
+#'                        (>= min_relative_shift) -- the relative-shift gate
+#'                        is what separates a risk that has genuinely shifted
+#'                        from one with a similar absolute pp move that is
+#'                        small relative to its own (low) base rate.
+#'   Monitor            -- a positive shift exists and evidence is Weak or
+#'                        Moderate, but the Update gate wasn't fully cleared;
+#'                        for Weak evidence specifically, the shift must
+#'                        still be at least "indicative" (>= 50% relative)
+#'                        to avoid flagging pure noise.
+#'   No action          -- shift is negligible, or evidence is Weak and the
+#'                        shift doesn't even clear the indicative bar.
+assess_risk_update <- function(risk_update) {
+  if (is.null(risk_update) || nrow(risk_update) == 0) return(risk_update)
+  th <- BAYES_DECISION_THRESHOLDS
+
+  risk_update %>%
+    rowwise() %>%
+    mutate(
+      observed_freq     = if (n_trials > 0) n_events / n_trials else NA_real_,
+      ci_width          = posterior_p95 - posterior_p05,
+      ci_narrow         = ci_width < th$risk_ci_narrow_pp,
+      ci_excludes_prior = !(posterior_p05 <= prior_prob & posterior_p95 >= prior_prob),
+      rel_change = dplyr::case_when(
+        prior_prob > 0          ~ abs(delta_prob) / prior_prob,
+        abs(delta_prob) >= 0.01 ~ Inf,
+        TRUE                    ~ 0
+      ),
+      magnitude_tier = dplyr::case_when(
+        rel_change >= th$min_relative_shift           ~ "Significant",
+        rel_change >= th$min_relative_shift_for_monitor ~ "Indicative",
+        TRUE                                           ~ "Negligible"
+      ),
+      direction = dplyr::case_when(
+        abs(delta_prob) < 1e-6 ~ "Stable",
+        delta_prob > 0          ~ "Increasing",
+        TRUE                    ~ "Decreasing"
+      ),
+      evidence_strength = .evidence_strength(n_trials, ci_narrow, ci_excludes_prior),
+      meets_update_gate = evidence_strength %in% c("Strong", "Moderate") &
+        n_trials >= th$min_trials_for_update &
+        n_events >= th$min_events_for_update &
+        abs(delta_prob) >= th$min_posterior_shift_pp &
+        rel_change >= th$min_relative_shift,
+      decision = dplyr::case_when(
+        meets_update_gate ~ "Update assumption",
+        delta_prob > 0 & evidence_strength %in% c("Weak", "Moderate") & magnitude_tier != "Negligible" ~ "Monitor",
+        TRUE ~ "No action"
+      ),
+      recommendation_level = dplyr::case_when(
+        decision == "Update assumption"                                       ~ "Recommended",
+        decision == "Monitor" & evidence_strength %in% c("Moderate", "Strong") ~ "Optional",
+        TRUE                                                                   ~ "Not justified"
+      ),
+      recommendation_text = dplyr::case_when(
+        decision == "Update assumption" ~
+          sprintf("Update risk assumption to %.1f%% (from %.1f%%).", 100 * posterior_mean, 100 * prior_prob),
+        decision == "Monitor" & evidence_strength == "Weak" ~
+          "Continue monitoring; collect more observations before updating this assumption.",
+        decision == "Monitor" ~
+          "Monitor closely - the shift is not yet large enough to justify an assumption change.",
+        TRUE ~ "No update justified."
+      ),
+      # ---- Decision Reason: a short, audit-ready sentence naming exactly
+      # which gate(s) the decision turned on, in the style requested for the
+      # Risk Probability Summary table.
+      decision_reason = dplyr::case_when(
+        decision == "Update assumption" ~ sprintf(
+          "%d event%s in %d trials. Posterior %s by %+.1f pp. Evidence %s. Update threshold exceeded.",
+          n_events, if (n_events == 1) "" else "s", n_trials,
+          dplyr::if_else(delta_prob >= 0, "increased", "decreased"),
+          100 * delta_prob, tolower(evidence_strength)),
+        decision == "Monitor" & n_trials < th$min_trials_for_update & n_events <= 2 ~ sprintf(
+          "Only %d event%s observed. Evidence %s despite %s shift.",
+          n_events, if (n_events == 1) "" else "s", tolower(evidence_strength),
+          dplyr::if_else(abs(100 * delta_prob) >= 4, "large", "a modest")),
+        decision == "Monitor" ~ sprintf(
+          "Posterior %s by %+.1f pp. Evidence %s. Continue monitoring.",
+          dplyr::if_else(delta_prob >= 0, "increased", "decreased"), 100 * delta_prob, tolower(evidence_strength)),
+        TRUE ~ sprintf(
+          "Shift %s and evidence %s.",
+          dplyr::if_else(abs(delta_prob) < th$min_posterior_shift_pp, "below threshold", "modest"),
+          tolower(evidence_strength))
+      ),
+      narrative_observed = dplyr::case_when(
+        n_trials < th$min_n_for_moderate_evidence ~ "Observed data insufficient to draw a conclusion.",
+        observed_freq > prior_prob ~ sprintf(
+          "Observed frequency (%.1f%%, %d/%d) exceeded the planning assumption (%.1f%%).",
+          100 * observed_freq, n_events, n_trials, 100 * prior_prob),
+        observed_freq < prior_prob ~ sprintf(
+          "Observed frequency (%.1f%%, %d/%d) was below the planning assumption (%.1f%%).",
+          100 * observed_freq, n_events, n_trials, 100 * prior_prob),
+        TRUE ~ sprintf(
+          "Observed frequency (%.1f%%, %d/%d) matched the planning assumption.",
+          100 * observed_freq, n_events, n_trials)
+      ),
+      narrative_posterior = sprintf(
+        "The Bayesian posterior estimate shifted from %.1f%% to %.1f%%.", 100 * prior_prob, 100 * posterior_mean),
+      narrative_interpretation = dplyr::case_when(
+        evidence_strength == "Weak" ~
+          sprintf("Insufficient evidence to conclude a change in %s frequency.", tolower(risk_event)),
+        direction == "Increasing" ~ "Evidence suggests the event may be occurring more frequently than assumed.",
+        direction == "Decreasing" ~ "Evidence suggests the event may be occurring less frequently than assumed.",
+        TRUE ~ "Evidence is consistent with the current assumption."
+      ),
+      narrative_full = sprintf(
+        "%s shifted from %.1f%% to %.1f%%. %s event%s %s observed across %d opportunit%s. Evidence is %s%s. Recommendation: %s.",
+        risk_event, 100 * prior_prob, 100 * posterior_mean,
+        .cap1(.num_word(n_events)), if (n_events == 1) "" else "s", if (n_events == 1) "was" else "were",
+        n_trials, if (n_trials == 1) "y" else "ies",
+        tolower(evidence_strength),
+        dplyr::case_when(
+          decision == "Update assumption" ~ " and exceeds the update threshold",
+          decision == "Monitor"           ~ ", which is not yet enough to update the assumption",
+          TRUE                            ~ " and the shift is below the update threshold"
+        ),
+        tolower(decision))
+    ) %>%
+    ungroup()
+}
+
 # ---- Risk observation CSV loader ---------------------------------------------
 
 #' Load a risk observations CSV (risk_event, n_trials, n_events).
