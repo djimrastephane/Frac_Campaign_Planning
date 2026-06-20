@@ -181,13 +181,21 @@ ui <- page_sidebar(
         numericInput("wireline_units", "Wireline units", value = 1, min = 1, max = 5, step = 1),
         numericInput("ct_units", "CT / cleanout units", value = 1, min = 1, max = 5, step = 1),
         numericInput("milling_units", "Milling units", value = 1, min = 1, max = 5, step = 1),
-        numericInput("frac_trees", "Frac trees available", value = 2, min = 1, max = 10, step = 1),
-        helpText("2 = basic zipper. 3 = lower swap delay (~5%). 4+ = further reduction (~10%)."),
-        sliderInput("zipper_efficiency", "Zipper execution factor",
-                    min = 0.5, max = 1.0, value = 0.75, step = 0.05),
-        helpText("0.75 means frac execution is 25% faster than conventional."),
-        numericInput("frac_tree_swap_delay_hours", "Frac tree swap delay, h", value = 4, min = 0, max = 48, step = 0.5),
-        helpText("Transition delay per well between zipper pairs when only 2 trees available."),
+        # Zipper-only inputs: have no effect on a Conventional-only run (the
+        # engine only applies tree efficiency / swap delay when is_zipper),
+        # so hide them when the user has picked Conventional specifically --
+        # but keep them visible for "Compare both", since that mode still
+        # runs a Zipper pass that uses them.
+        conditionalPanel(
+          condition = "input.operation_mode != 'Conventional'",
+          numericInput("frac_trees", "Frac trees available", value = 2, min = 1, max = 10, step = 1),
+          helpText("2 = basic zipper. 3 = lower swap delay (~5%). 4+ = further reduction (~10%)."),
+          sliderInput("zipper_efficiency", "Zipper execution factor",
+                      min = 0.5, max = 1.0, value = 0.75, step = 0.05),
+          helpText("0.75 means frac execution is 25% faster than conventional."),
+          numericInput("frac_tree_swap_delay_hours", "Frac tree swap delay, h", value = 4, min = 0, max = 48, step = 0.5),
+          helpText("Transition delay per well between zipper pairs when only 2 trees available.")
+        ),
         numericInput("testing_units", "Testing units (flowback / plug milling)", value = 1, min = 1, max = 5, step = 1),
         numericInput("flowback_testing_days_min", "Flowback + testing, min days", value = 7, min = 1, max = 30, step = 1),
         numericInput("flowback_testing_days_max", "Flowback + testing, max days", value = 10, min = 1, max = 30, step = 1),
