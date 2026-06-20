@@ -142,6 +142,7 @@ ui <- page_sidebar(
           "Recommended: 20+ historical wells for calibrated estimates."),
         fileInput("assumption_file", "master_risks_assumptions.csv", accept = ".csv"),
         fileInput("risk_library_file", "risk_consequence_library.csv (optional)", accept = ".csv"),
+        downloadButton("download_risk_library_template", "Download template", class = "btn-sm w-100 mb-2"),
         helpText(class = "text-muted small mt-0",
           "If omitted, the bundled template is used. Expected columns: ",
           "risk_name, category, scope, base_probability, severity, scenario_probability, ",
@@ -903,6 +904,17 @@ server <- function(input, output, session) {
     target <- switch(input$execution_mode, Fast = 300, Standard = 1000, Audit = 2000)
     updateNumericInput(session, "n_iter", value = target)
   }, ignoreInit = TRUE)
+
+  output$download_risk_library_template <- downloadHandler(
+    filename = function() "risk_consequence_library_template_simple_severity.csv",
+    content = function(file) {
+      file.copy(
+        file.path(project_root, "data_templates",
+                   "risk_consequence_library_template_simple_severity.csv"),
+        file
+      )
+    }
+  )
 
   input_data <- reactive({
     req(input$assumption_file)
