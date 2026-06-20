@@ -50,13 +50,20 @@ df_scope <- mk(
 e3 <- err(df_scope)
 chk(!is.null(e3) && grepl("invalid scope", e3, ignore.case = TRUE), "typo'd scope value is rejected, not silently defaulted")
 
-# -- 5. Blank/NA scope is allowed (defaults to well) and only warns.
+# -- 5. Blank/NA scope is allowed (defaults to well) and only warns, but the
+# warning must name the offending row(s) -- not just a bare count -- like
+# every other check in this function does.
 df_blank_scope <- mk(
-  "Frac", "Screenout", "risk", 0.08, 0.5, 1.0, 3.0, "extra stage", NA
+  "Frac", "Screenout",   "risk", 0.08, 0.5, 1.0, 3.0, "extra stage",    "stage",
+  "Frac", "Gun misfire", "risk", 0.05, 0.2, 0.5, 1.0, "additional run", NA
 )
 res <- tryCatch(validate_assumptions(df_blank_scope), error = function(e) e)
 chk(!inherits(res, "error"), "blank/NA scope does not error")
-chk(any(grepl("defaulting to 'well'", attr(res, "input_warnings"))), "blank/NA scope produces a 'defaulting to well' warning")
+scope_warning <- attr(res, "input_warnings")[grepl("defaulting to 'well'", attr(res, "input_warnings"))]
+chk(length(scope_warning) == 1, "blank/NA scope produces a 'defaulting to well' warning")
+chk(grepl("row 2", scope_warning) && grepl("Gun misfire", scope_warning),
+    "missing-scope warning names the offending row number and risk, not just a count")
+chk(!grepl("row 1", scope_warning), "missing-scope warning does not name the row that has a valid scope")
 
 # -- 6. A normal, fully valid two-risk file passes with no errors or warnings.
 df_ok <- mk(

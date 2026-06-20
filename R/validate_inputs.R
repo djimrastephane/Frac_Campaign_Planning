@@ -142,8 +142,14 @@ validate_assumptions <- function(df) {
   } else {
     risk_rows
   }
-  if (nrow(no_scope) > 0)
-    w <- c(w, sprintf("%d risk row(s) missing scope — defaulting to 'well'.", nrow(no_scope)))
+  if (nrow(no_scope) > 0) {
+    detail <- paste0("row ", no_scope$.row, " (", no_scope$variable, ")")
+    w <- c(w, sprintf(
+      "%d risk row(s) missing scope — defaulting to 'well': %s%s.",
+      nrow(no_scope), paste(utils::head(detail, 5), collapse = ", "),
+      if (nrow(no_scope) > 5) sprintf(", and %d more", nrow(no_scope) - 5) else ""
+    ))
+  }
   attr(df, "input_warnings") <- w
 
   df
