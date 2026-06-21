@@ -1043,6 +1043,23 @@ server <- function(input, output, session) {
     risk_rows_seed_rv(default_assumptions_split$risk)
   })
 
+  # Custom "Remove row" menu item: confirm() before calling Handsontable's
+  # own alter('remove_row', ...) -- the default item removes immediately
+  # with no prompt, which is one accidental right-click away from losing a
+  # risk row with no undo (Ctrl+Z aside).
+  confirm_remove_row_js <- htmlwidgets::JS("
+    function (key, selection) {
+      if (!window.confirm('Remove this risk row? This cannot be undone (use \"Reset to template defaults\" to start over from the bundled defaults).')) {
+        return;
+      }
+      var start = selection[0].start.row;
+      var end = selection[0].end.row;
+      for (var r = end; r >= start; r--) {
+        this.alter('remove_row', r);
+      }
+    }
+  ")
+
   output$risk_rows_hot <- renderRHandsontable({
     df <- risk_rows_seed_rv()
     rhandsontable(df, useTypes = TRUE, stretchH = "all", contextMenu = TRUE) %>%
@@ -1055,7 +1072,10 @@ server <- function(input, output, session) {
       hot_col("most_likely_days", type = "numeric", format = "0.00") %>%
       hot_col("max_days", type = "numeric", format = "0.00") %>%
       hot_col("simulation_impact", type = "text") %>%
-      hot_col("scope", type = "dropdown", source = c("stage", "well", "campaign"))
+      hot_col("scope", type = "dropdown", source = c("stage", "well", "campaign")) %>%
+      hot_context_menu(customOpts = list(
+        remove_row = list(name = "Remove row", callback = confirm_remove_row_js)
+      ))
   })
 
   # Current risk rows as edited in the grid, falling back to the seed before
