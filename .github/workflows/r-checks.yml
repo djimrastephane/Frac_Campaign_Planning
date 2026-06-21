@@ -1,0 +1,46 @@
+name: R engine checks
+
+# Guards the one thing the project depends on for trust: that
+# simulation_engine_fast.R stays numerically identical to simulation_engine.R
+# (check_regression.R) and that every property-check test in R/test_*.R still
+# passes. Both already exit non-zero on failure -- this workflow just makes
+# that failure visible on every push/PR instead of depending on someone
+# running them by hand.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check_regression_and_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.5"
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::dplyr
+            any::tibble
+            any::tidyr
+            any::stringr
+            any::readr
+            any::janitor
+
+      - name: Run check_regression.R (fast engine vs. original, bit-identical)
+        working-directory: R
+        run: Rscript check_regression.R
+
+      - name: Run property-check test suite
+        working-directory: R
+        run: |
+          set -e
+          for f in test_*.R; do
+            echo "::group::$f"
+            Rscript "$f"
+            echo "::endgroup::"
+          done
