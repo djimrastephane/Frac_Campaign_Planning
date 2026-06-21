@@ -2,6 +2,41 @@
 # Input checks before running the simulation.
 # Version 12: row-level diagnostics so users see exactly WHICH rows fail,
 # plus probability range checks for risk rows.
+# Version 13: reject non-numeric values in historical_wells' numeric columns
+# up front (mirrors strict_as_numeric()'s diagnostics in
+# simulation_engine_fast.R, kept as a local copy so this validation file has
+# no dependency on the engine). Without this, a stray text value silently
+# turns the whole column character, and `df$frac_days_per_stage > 0` below
+# does a string comparison instead of erroring -- producing a wrong
+# n_pos_frac count rather than a readable failure.
+
+# well_id / pad_id are identifiers, not used arithmetically downstream, so
+# they're excluded.
+.HISTORICAL_NUMERIC_COLS <- c(
+  "stages_completed", "plugs_installed", "contingency_plugs", "frac_days",
+  "cement_eval_days", "milling_days", "frac_days_per_stage", "milling_days_per_plug"
+)
+
+.check_historical_numeric <- function(df) {
+  bad <- character(0)
+  for (col in .HISTORICAL_NUMERIC_COLS) {
+    raw <- df[[col]]
+    coerced <- suppressWarnings(as.numeric(as.character(raw)))
+    is_bad <- is.na(coerced) & !is.na(raw) & nchar(trimws(as.character(raw))) > 0
+    if (any(is_bad)) {
+      rows <- which(is_bad)
+      well_label <- if ("well_id" %in% names(df)) df$well_id[rows] else rows
+      detail <- paste0("row ", rows, " (", well_label, "): \"", as.character(raw)[rows], "\"")
+      bad <- c(bad, sprintf("Column '%s' has non-numeric value(s): %s", col, paste(detail, collapse = "; ")))
+    }
+  }
+  if (length(bad) > 0) {
+    stop(
+      "Historical wells file has non-numeric values in numeric columns:\n",
+      paste(bad, collapse = "\n")
+    )
+  }
+}
 
 validate_historical_wells <- function(df) {
   required <- c(
@@ -18,6 +53,8 @@ validate_historical_wells <- function(df) {
   if (nrow(df) == 0) {
     stop("Historical wells file contains no data rows.")
   }
+
+  .check_historical_numeric(df)
 
   n_pos_frac <- sum(!is.na(df$frac_days_per_stage) & df$frac_days_per_stage > 0)
   n_pos_mill <- sum(!is.na(df$milling_days_per_plug) & df$milling_days_per_plug > 0)
