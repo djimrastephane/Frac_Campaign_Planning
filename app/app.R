@@ -18,6 +18,26 @@ library(dplyr)
 library(ggplot2)
 library(DT)
 library(janitor)
+library(future)
+library(promises)
+
+# The main "Run simulation" button can take 25-55s at Audit-mode/40-well
+# scale (measured). Without this, that call runs synchronously inside the
+# Shiny session's single R process and the WHOLE session -- every tab, every
+# other reactive -- is unresponsive for the full duration. multisession runs
+# it in a separate background R process so the session stays responsive;
+# see sim_results' observeEvent(input$run, ...) below.
+#
+# Capped at 2 workers, not future's default of availableCores(): this
+# session never runs more than 2 concurrent simulate_campaign_detailed()
+# calls (Compare-both's own .par_lapply() fork is a SEPARATE, nested pool
+# spun up inside one of these 2 workers, not more multisession workers).
+# multisession spawns its pool eagerly at plan() time, before any "Run"
+# click -- on a typical Shiny Server deployment where every session gets
+# its own R process, future's default would mean every single session
+# idles with one persistent worker R process per CPU core on the host for
+# its entire lifetime, which compounds fast under concurrent users.
+future::plan(future::multisession, workers = 2)
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -50,8 +70,6 @@ source(file.path(project_root, "R", "plots.R"))
 safe_round_df <- function(df, digits = 2) {
   df %>% mutate(across(where(is.numeric), ~ round(.x, digits)))
 }
-
-engine_has_progress <- "progress_callback" %in% names(formals(simulate_campaign_detailed))
 
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
@@ -131,6 +149,7 @@ ui <- page_sidebar(
   sidebar = sidebar(
     width = 340,
     actionButton("run", "Run simulation", class = "btn-primary btn-lg w-100"),
+    uiOutput("run_status"),
     uiOutput("status_message"),
     uiOutput("download_ui"),
     accordion(
@@ -1032,7 +1051,33 @@ server <- function(input, output, session) {
     )
   })
 
-  sim_results <- eventReactive(input$run, {
+  # --- Async "Run simulation" ------------------------------------------------
+  # The heavy lifting (build_run_args/detailed_runs below) now runs inside
+  # future::future() in a separate background R process (see plan() at the
+  # top of this file), so this Shiny session stays responsive -- other tabs,
+  # inputs, and outputs keep working -- for the full 25-55s a large/Audit-mode
+  # run can take, instead of freezing the whole session.
+  #
+  # Trade-off, stated plainly: a future runs in a different process with no
+  # access to this session, so it cannot call withProgress()/setProgress()
+  # (which only work in functions like setProgress(), called on
+  # this session's reactive domain) and cannot use the per-mode/per-iteration
+  # progress_callback wiring the synchronous path used to have. The granular
+  # progress bar is replaced by a single busy/done/error status
+  # (sim_running_rv / output$run_status below). Compare-both's .par_lapply()
+  # fork-based parallelism (see test_compare_both_parallel.R) is preserved
+  # unchanged inside the future's body -- a future worker process forking
+  # its own children works exactly like the main process doing so.
+  sim_result_rv  <- reactiveVal(NULL)
+  sim_running_rv <- reactiveVal(FALSE)
+
+  observeEvent(input$run, {
+    if (isTRUE(sim_running_rv())) {
+      showNotification("A simulation is already running -- please wait for it to finish.",
+                        type = "warning", duration = 5)
+      return(invisible())
+    }
+
     req(input$assumption_file)
     dat <- input_data()
     validate(need(isTRUE(dat$ok), paste("Fix input files first:", dat$error)))
@@ -1040,110 +1085,163 @@ server <- function(input, output, session) {
     modes <- if (input$operation_mode == "Compare both") c("Conventional", "Zipper") else input$operation_mode
     keep_full_logs <- input$execution_mode != "Fast"
 
-    tryCatch({
-      withProgress(message = "Running simulation", value = 0, {
-        # Use Bayesian-merged wells if the user has applied an update.
-        historical_for_sim <- bayes_merged_wells_rv() %||% dat$historical
+    # Everything the background process needs must be captured as a plain
+    # value HERE, synchronously, on the main session -- input$..., dat$...,
+    # and bayes_merged_wells_rv() are reactive and cannot be read from inside
+    # future::future()'s expression, which runs in a separate R process.
+    historical_for_sim <- bayes_merged_wells_rv() %||% dat$historical
+    assumptions_snapshot   <- dat$assumptions
+    risk_library_snapshot  <- dat$risk_library
+    ui_params <- list(
+      n_wells = as.integer(input$n_wells),
+      n_iterations = as.integer(input$n_iter),
+      frac_fleets = input$frac_fleets,
+      milling_units = input$milling_units,
+      wireline_units = input$wireline_units,
+      ct_units = input$ct_units,
+      frac_trees = input$frac_trees,
+      zipper_efficiency = input$zipper_efficiency,
+      risk_multiplier = input$risk_multiplier,
+      wireline_time_per_stage_hours = input$wireline_time_per_stage_hours,
+      wireline_rig_up_down_hours = input$wireline_rig_up_down_hours,
+      wireline_contingency_pct = input$wireline_contingency_pct,
+      frac_time_per_stage_hours = input$frac_time_per_stage_hours,
+      frac_settling_time_hours = input$frac_settling_time_hours,
+      well_to_well_transition_hours = input$well_to_well_transition_hours,
+      pad_to_pad_move_hours = input$pad_to_pad_move_hours,
+      frac_tree_swap_delay_hours = input$frac_tree_swap_delay_hours,
+      allow_ct_for_milling = isTRUE(input$allow_ct_for_milling),
+      ct_milling_efficiency = input$ct_milling_efficiency,
+      testing_units = input$testing_units,
+      flowback_testing_days_min = input$flowback_testing_days_min,
+      flowback_testing_days_max = input$flowback_testing_days_max,
+      seed = as.integer(input$seed)
+    )
+
+    sim_running_rv(TRUE)
+
+    fut <- future::future(
+      {
+        # multisession workers start as fresh R processes -- explicitly
+        # source the engine files rather than relying on automatic global
+        # detection to find every transitively-called helper function.
+        source(file.path(project_root, "R", "simulation_engine_fast.R"))
+        source(file.path(project_root, "R", "risk_library_engine.R"))
+        source(file.path(project_root, "R", "optimiser_parallel.R"))
 
         build_run_args <- function(mode_index) {
           list(
             historical_wells = historical_for_sim,
-            assumptions = dat$assumptions,
-            n_wells = as.integer(input$n_wells),
-            n_iterations = as.integer(input$n_iter),
-            frac_fleets = input$frac_fleets,
-            milling_units = input$milling_units,
-            wireline_units = input$wireline_units,
-            ct_units = input$ct_units,
-            frac_trees = input$frac_trees,
+            assumptions = assumptions_snapshot,
+            n_wells = ui_params$n_wells,
+            n_iterations = ui_params$n_iterations,
+            frac_fleets = ui_params$frac_fleets,
+            milling_units = ui_params$milling_units,
+            wireline_units = ui_params$wireline_units,
+            ct_units = ui_params$ct_units,
+            frac_trees = ui_params$frac_trees,
             operation_mode = modes[[mode_index]],
-            zipper_efficiency = input$zipper_efficiency,
-            risk_multiplier = input$risk_multiplier,
-            wireline_time_per_stage_hours = input$wireline_time_per_stage_hours,
-            wireline_rig_up_down_hours = input$wireline_rig_up_down_hours,
-            wireline_contingency_pct = input$wireline_contingency_pct,
-            frac_time_per_stage_hours = input$frac_time_per_stage_hours,
-            frac_settling_time_hours = input$frac_settling_time_hours,
-            well_to_well_transition_hours = input$well_to_well_transition_hours,
-            pad_to_pad_move_hours = input$pad_to_pad_move_hours,
-            frac_tree_swap_delay_hours = input$frac_tree_swap_delay_hours,
-            allow_ct_for_milling = isTRUE(input$allow_ct_for_milling),
-            ct_milling_efficiency = input$ct_milling_efficiency,
-            testing_units = input$testing_units,
-            flowback_testing_days_min = input$flowback_testing_days_min,
-            flowback_testing_days_max = input$flowback_testing_days_max,
-            risk_library = dat$risk_library,
-            seed = as.integer(input$seed) + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
+            zipper_efficiency = ui_params$zipper_efficiency,
+            risk_multiplier = ui_params$risk_multiplier,
+            wireline_time_per_stage_hours = ui_params$wireline_time_per_stage_hours,
+            wireline_rig_up_down_hours = ui_params$wireline_rig_up_down_hours,
+            wireline_contingency_pct = ui_params$wireline_contingency_pct,
+            frac_time_per_stage_hours = ui_params$frac_time_per_stage_hours,
+            frac_settling_time_hours = ui_params$frac_settling_time_hours,
+            well_to_well_transition_hours = ui_params$well_to_well_transition_hours,
+            pad_to_pad_move_hours = ui_params$pad_to_pad_move_hours,
+            frac_tree_swap_delay_hours = ui_params$frac_tree_swap_delay_hours,
+            allow_ct_for_milling = ui_params$allow_ct_for_milling,
+            ct_milling_efficiency = ui_params$ct_milling_efficiency,
+            testing_units = ui_params$testing_units,
+            flowback_testing_days_min = ui_params$flowback_testing_days_min,
+            flowback_testing_days_max = ui_params$flowback_testing_days_max,
+            risk_library = risk_library_snapshot,
+            seed = ui_params$seed + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
           )
         }
 
-        # Compare-both runs Conventional and Zipper as two fully independent
-        # simulate_campaign_detailed() calls -- the single biggest source of
-        # "Run" button latency at Audit-mode/large-campaign scale (each call
-        # alone can take 20-30s; sequential back-to-back is 40-60s of a fully
-        # blocked R session). Fork them across cores with the same
-        # .par_lapply() helper optimiser_parallel.R already uses (and already
-        # regression-tested bit-identical) for the scenario grid, rather than
-        # inventing a second parallel-execution mechanism.
-        #
-        # Fork-based parallelism can't report live per-iteration progress
-        # back from the child process to this session's progress bar, so the
-        # parallel path shows one coarse message instead of the granular
-        # i/n-per-mode detail the sequential path gives -- the only UX
-        # difference; the simulation math and results are identical either
-        # way (see test_compare_both_parallel.R).
-        use_parallel <- length(modes) > 1 &&
-          .Platform$OS.type != "windows" &&
-          parallel::detectCores() > 1
+        tryCatch({
+          # Compare-both runs Conventional and Zipper as two fully independent
+          # simulate_campaign_detailed() calls -- fork them across cores with
+          # the same .par_lapply() helper optimiser_parallel.R already uses
+          # for the scenario grid (regression-tested bit-identical; see
+          # test_compare_both_parallel.R) rather than inventing a second
+          # parallel-execution mechanism.
+          use_parallel <- length(modes) > 1 &&
+            .Platform$OS.type != "windows" &&
+            parallel::detectCores() > 1
 
-        if (use_parallel) {
-          setProgress(0.1, detail = sprintf("Running %s in parallel...", paste(modes, collapse = " + ")))
-          args_list <- lapply(seq_along(modes), build_run_args)
-          parallel_out <- .par_lapply(
-            seq_along(modes),
-            function(mode_index) {
-              list(result = do.call(simulate_campaign_detailed, args_list[[mode_index]]),
-                   args = args_list[[mode_index]])
-            },
-            n_cores = length(modes)
+          if (use_parallel) {
+            args_list <- lapply(seq_along(modes), build_run_args)
+            detailed_runs <- .par_lapply(
+              seq_along(modes),
+              function(mode_index) {
+                list(result = do.call(simulate_campaign_detailed, args_list[[mode_index]]),
+                     args = args_list[[mode_index]])
+              },
+              n_cores = length(modes)
+            )
+          } else {
+            detailed_runs <- lapply(seq_along(modes), function(mode_index) {
+              args <- build_run_args(mode_index)
+              res <- do.call(simulate_campaign_detailed, args)
+              list(result = res, args = args)
+            })
+          }
+
+          results_only <- lapply(detailed_runs, `[[`, "result")
+          args_by_mode <- setNames(lapply(detailed_runs, `[[`, "args"), modes)
+
+          list(
+            ok = TRUE,
+            summary = dplyr::bind_rows(lapply(results_only, `[[`, "summary")),
+            well_details = if (keep_full_logs) dplyr::bind_rows(lapply(results_only, `[[`, "well_details")) else tibble::tibble(),
+            risk_event_log = dplyr::bind_rows(lapply(results_only, `[[`, "risk_event_log")),
+            resource_utilization = dplyr::bind_rows(lapply(results_only, `[[`, "resource_utilization")),
+            assumptions_used = dplyr::bind_rows(lapply(results_only, `[[`, "assumptions_used")) %>% dplyr::distinct(),
+            args_by_mode = args_by_mode
           )
-          setProgress(0.9, detail = "Combining results...")
-          detailed_runs <- parallel_out
+        }, error = function(e) {
+          list(ok = FALSE, error = conditionMessage(e))
+        })
+      },
+      seed = FALSE,  # each simulate_campaign_detailed() call seeds itself internally (see optimiser_parallel.R)
+      globals = list(
+        project_root = project_root, modes = modes, keep_full_logs = keep_full_logs,
+        historical_for_sim = historical_for_sim, assumptions_snapshot = assumptions_snapshot,
+        risk_library_snapshot = risk_library_snapshot, ui_params = ui_params
+      )
+    )
+
+    promises::then(fut,
+      onFulfilled = function(value) {
+        sim_running_rv(FALSE)
+        if (isTRUE(value$ok)) {
+          sim_result_rv(value)
         } else {
-          detailed_runs <- lapply(seq_along(modes), function(mode_index) {
-            base_frac <- (mode_index - 1) / length(modes)
-            args <- build_run_args(mode_index)
-            if (engine_has_progress) {
-              args$progress_callback <- function(i, n) {
-                setProgress(base_frac + (i / n) / length(modes),
-                            detail = sprintf("%s: %d / %d", modes[[mode_index]], i, n))
-              }
-            } else {
-              setProgress(base_frac, detail = modes[[mode_index]])
-            }
-            res <- do.call(simulate_campaign_detailed, args)
-            args$progress_callback <- NULL  # strip closure so args can be safely re-run later
-            list(result = res, args = args)
-          })
+          showNotification(paste("Simulation error:", value$error), type = "error", duration = NULL)
+          sim_result_rv(NULL)
         }
-
-        results_only <- lapply(detailed_runs, `[[`, "result")
-        args_by_mode <- setNames(lapply(detailed_runs, `[[`, "args"), modes)
-
-        list(
-          summary = bind_rows(lapply(results_only, `[[`, "summary")),
-          well_details = if (keep_full_logs) bind_rows(lapply(results_only, `[[`, "well_details")) else tibble(),
-          risk_event_log = bind_rows(lapply(results_only, `[[`, "risk_event_log")),
-          resource_utilization = bind_rows(lapply(results_only, `[[`, "resource_utilization")),
-          assumptions_used = bind_rows(lapply(results_only, `[[`, "assumptions_used")) %>% distinct(),
-          args_by_mode = args_by_mode
-        )
-      })
-    }, error = function(e) {
-      showNotification(paste("Simulation error:", conditionMessage(e)), type = "error", duration = NULL)
-      NULL
-    })
+      },
+      onRejected = function(error) {
+        sim_running_rv(FALSE)
+        showNotification(paste("Simulation error:", conditionMessage(error)), type = "error", duration = NULL)
+        sim_result_rv(NULL)
+      }
+    )
+    invisible(NULL)
   })
+
+  output$run_status <- renderUI({
+    if (isTRUE(sim_running_rv())) {
+      tags$div(class = "small text-primary mt-1",
+        tags$span(class = "spinner-border spinner-border-sm me-1", role = "status"),
+        "Running simulation in the background -- the rest of the app stays responsive.")
+    }
+  })
+
+  sim_results <- reactive({ sim_result_rv() })
 
   # --- Derived tables: each computed ONCE per run ----------------------------
 
