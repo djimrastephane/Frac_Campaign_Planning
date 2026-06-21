@@ -1095,13 +1095,16 @@ ui <- page_sidebar(
           "(locked-name, looked up by exact name by the engine) are not edited here — ",
           "they still come from the uploaded file, or the bundled template if none is uploaded."),
         layout_columns(
-          col_widths = c(8, 4),
-          div(),
+          col_widths = c(6, 6),
+          fileInput("risk_rows_file", "Upload risk rows CSV (optional)", accept = ".csv"),
           div(class = "text-end",
-            actionButton("reset_risk_rows", "Reset both tables to template defaults", class = "btn-sm btn-outline-secondary me-2"),
+            actionButton("reset_risk_rows", "Reset to template defaults", class = "btn-sm btn-outline-secondary me-2"),
             downloadButton("download_risk_rows", "Download as CSV", class = "btn-sm")
           )
         ),
+        helpText(class = "text-muted small mt-n2",
+          "Same column layout as master_risks_assumptions.csv — rows that aren't ",
+          "Technical/Resource/External Risk type are ignored on upload."),
         tags$div(class = "alert alert-info py-2 px-3 small mb-2",
           tags$strong("Tip: "),
           "right-click any row in the grid below to insert a new risk above/below it, ",
@@ -1168,8 +1171,21 @@ server <- function(input, output, session) {
     }
   })
 
+  # Dedicated upload/download/reset for just the Risk rows table -- unlike
+  # assumption_file above, this only ever touches risk_rows_seed_rv(); any
+  # locked-name rows present in the uploaded CSV are ignored.
+  observeEvent(input$risk_rows_file, {
+    split <- tryCatch(
+      split_assumptions_locked_risk(load_master_assumptions(input$risk_rows_file$datapath)),
+      error = function(e) {
+        showNotification(paste("Risk rows file error:", conditionMessage(e)), type = "error", duration = 10)
+        NULL
+      }
+    )
+    if (!is.null(split)) risk_rows_seed_rv(split$risk)
+  })
+
   observeEvent(input$reset_risk_rows, {
-    locked_rows_rv(default_assumptions_split$locked)
     risk_rows_seed_rv(default_assumptions_split$risk)
   })
 
