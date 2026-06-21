@@ -581,10 +581,15 @@ assess_risk_update <- function(risk_update) {
           risk_event, 100 * prior_prob)
       } else {
         sprintf(
-          "%s shifted from %.1f%% to %.1f%%. %s event%s %s observed across %d opportunit%s. Evidence is %s%s. Recommendation: %s.",
+          "%s shifted from %.1f%% to %.1f%%. %s event%s %s observed across %s. Evidence is %s%s. Recommendation: %s.",
           risk_event, 100 * prior_prob, 100 * posterior_mean,
           .cap1(.num_word(n_events)), if (n_events == 1) "" else "s", if (n_events == 1) "was" else "were",
-          n_trials, if (n_trials == 1) "y" else "ies",
+          # Names the opportunity unit (stage/well/campaign) rather than the
+          # generic "opportunity" -- a stage-scope risk's trial count and a
+          # campaign-scope risk's trial count are not comparable samples, and
+          # this is the one narrative field actually rendered in the Bayesian
+          # tab (sample_caveat says this too, but is never rendered).
+          .scope_unit_label(scope, n_trials),
           tolower(evidence_strength),
           dplyr::case_when(
             decision == "Update assumption" ~ " and exceeds the update threshold",

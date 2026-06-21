@@ -86,6 +86,15 @@ chk(!isTRUE(wd$meets_update_gate), "Weather delay does not clear the full gate")
 chk(grepl("exceeds the update threshold", so$narrative_full), "Screen out: full narrative cites the update threshold")
 chk(grepl("Recommendation: update assumption\\.$", so$narrative_full), "Screen out: full narrative ends with the recommendation")
 
+# -- narrative_full -- the only risk narrative actually rendered in the
+# Bayesian tab (sample_caveat is computed but never shown in the UI) --
+# must name the opportunity unit (stage/well/campaign), not a generic
+# "opportunity": two risks with the same n_trials but different scopes are
+# not comparable samples, and the UI text must not imply they are.
+chk(grepl("53 stages", so$narrative_full), "Screen out (stage scope, 53 trials): full narrative says '53 stages', not '53 opportunities'")
+chk(grepl("1 campaign\\b", wl$narrative_full), "Wireline crew unavailable (campaign scope, 1 trial): full narrative says '1 campaign', not '1 opportunity'")
+chk(!grepl("opportunit", so$narrative_full, ignore.case = TRUE), "Screen out: full narrative no longer uses the generic 'opportunity' wording")
+
 # -- Duration: renamed middle tier is "Review assumption" (was "Monitor" in an earlier revision)
 chk(!any(dur$decision == "Monitor"), "duration decisions never use the risk-only label 'Monitor'")
 chk(all(dur$decision %in% c("Retain assumption", "Review assumption", "Update assumption")),
