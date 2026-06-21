@@ -325,6 +325,17 @@ ui <- page_sidebar(
         numericInput("wireline_units", "Wireline units", value = 1, min = 1, max = 5, step = 1),
         numericInput("ct_units", "CT / cleanout units", value = 1, min = 1, max = 5, step = 1),
         numericInput("milling_units", "Milling units", value = 1, min = 1, max = 5, step = 1),
+        selectInput("pre_frac_scheduling", "Pre-frac scheduling model",
+                    choices = c("Workload formula (default)" = "formula",
+                                "Resource queue (experimental)" = "event"),
+                    selected = "formula"),
+        helpText(class = "text-muted small mt-0",
+          "Workload formula: divides each well's CT/wireline/frac workload by ",
+          "the resource count -- fast, well-established. Resource queue: schedules ",
+          "each well against real unit-availability timelines, so e.g. a wireline ",
+          "unit that finishes a well early can start the next one immediately. ",
+          "Numbers can differ from the formula model -- compare before relying on it ",
+          "for a decision."),
         # Zipper-only inputs: have no effect on a Conventional-only run (the
         # engine only applies tree efficiency / swap delay when is_zipper),
         # so hide them when the user has picked Conventional specifically --
@@ -1456,6 +1467,7 @@ server <- function(input, output, session) {
       testing_units = input$testing_units,
       flowback_testing_days_min = input$flowback_testing_days_min,
       flowback_testing_days_max = input$flowback_testing_days_max,
+      pre_frac_scheduling = input$pre_frac_scheduling,
       seed = as.integer(input$seed)
     )
 
@@ -1497,6 +1509,7 @@ server <- function(input, output, session) {
             testing_units = ui_params$testing_units,
             flowback_testing_days_min = ui_params$flowback_testing_days_min,
             flowback_testing_days_max = ui_params$flowback_testing_days_max,
+            pre_frac_scheduling = ui_params$pre_frac_scheduling,
             risk_library = risk_library_snapshot,
             seed = ui_params$seed + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
           )
@@ -2684,7 +2697,8 @@ server <- function(input, output, session) {
       frac_tree_swap_delay_hours = input$frac_tree_swap_delay_hours,
       ct_milling_efficiency = input$ct_milling_efficiency,
       flowback_testing_days_min = input$flowback_testing_days_min,
-      flowback_testing_days_max = input$flowback_testing_days_max
+      flowback_testing_days_max = input$flowback_testing_days_max,
+      pre_frac_scheduling = input$pre_frac_scheduling
     )
     res <- tryCatch({
       withProgress(message = "Analysing constraint cascade", value = 0, {
@@ -3136,7 +3150,8 @@ server <- function(input, output, session) {
       frac_tree_swap_delay_hours = input$frac_tree_swap_delay_hours,
       ct_milling_efficiency = input$ct_milling_efficiency,
       flowback_testing_days_min = input$flowback_testing_days_min,
-      flowback_testing_days_max = input$flowback_testing_days_max
+      flowback_testing_days_max = input$flowback_testing_days_max,
+      pre_frac_scheduling = input$pre_frac_scheduling
     )
 
     res <- tryCatch({
