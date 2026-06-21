@@ -157,7 +157,7 @@ tradeoffs, operational risk, resource bottlenecks, and cost/schedule optimizatio
 the full tab-by-tab set (Workflow reference, Historical Learning, Sensitivity, Bayesian
 Update, What-If, Risk Heatmap), see `docs/images/screenshots/`.*
 
-*Last refreshed: 2026-06-16 (commit `a805beb`). UI labels and panels can drift out of sync
+*Last refreshed: 2026-06-21 (commit `6c67d08`). UI labels and panels can drift out of sync
 with these images between refreshes — if something below doesn't match the running app,
 trust the app and regenerate via `Rscript generate_screenshots.R` and
 `Rscript generate_screenshots_tabs.R`.*
@@ -168,7 +168,7 @@ trust the app and regenerate via `Rscript generate_screenshots.R` and
 ### Decision support — narrative, recommendation, robustness and scenario library
 ![Decision support tab](docs/images/screenshots/02_decision_support.png)
 
-### Risks — schedule risk heatmap, well ranking, tornado and consequence propagation
+### Risks — schedule risk heatmap and well risk ranking
 ![Risks tab](docs/images/screenshots/03_risks.png)
 
 ### Resources — utilization and deployment
@@ -176,6 +176,9 @@ trust the app and regenerate via `Rscript generate_screenshots.R` and
 
 ### Optimiser — constraint cascade and Pareto search
 ![Optimiser tab](docs/images/screenshots/05_optimiser.png)
+
+### Risk Editor — in-app editable grids, no CSV authoring required
+![Risk Editor tab](docs/images/screenshots/12_risk_editor.png)
 
 ---
 

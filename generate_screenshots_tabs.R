@@ -16,6 +16,7 @@ cat("Sourcing R modules...\n")
 source("R/load_inputs.R")
 source("R/validate_inputs.R")
 source("R/simulation_engine_fast.R")
+source("R/risk_library_engine.R")
 source("R/optimiser_parallel.R")
 source("R/risk_uncertainty.R")
 source("R/bottleneck_explain.R")
@@ -137,21 +138,23 @@ save_png(
 )
 
 # ---------------------------------------------------------------------------
-# 03 — Risks (heatmap + ranking + tornado + consequences)
+# 03 — Risks (heatmap + ranking only -- README-facing version. The tornado
+# and consequence-propagation panels were dropped from this image: cramming
+# 4 dense panels into one PNG made it hard to read at README width. They're
+# still available individually via plot_risk_tornado()/plot_risk_consequences()
+# for anyone regenerating the full per-tab set, just not in this composite.)
 # ---------------------------------------------------------------------------
 cat("\n[03] Risks tab...\n")
 p_heat  <- plot_schedule_risk_heatmap(heatmap_data, top_n_risks = 8)
 p_rank  <- plot_well_risk_ranking(heatmap_data)
-p_torn  <- plot_risk_tornado(stage_risk)
-p_conseq <- plot_risk_consequences(consequences)
 
 save_png(
-  ((p_heat | p_rank) / (p_torn | p_conseq)) +
+  (p_heat / p_rank) +
     plot_annotation(
-      title = "Risks — schedule risk heatmap, well ranking, tornado and consequence propagation",
+      title = "Risks — schedule risk heatmap and well risk ranking",
       theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
     ),
-  "03_risks.png", w = 1600, h = 1200
+  "03_risks.png", w = 1400, h = 1000
 )
 
 # ---------------------------------------------------------------------------
