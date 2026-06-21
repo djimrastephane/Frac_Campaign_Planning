@@ -1048,10 +1048,10 @@ ui <- page_sidebar(
                 tags$td(tags$code("master_risks_assumptions.csv"))),
               tags$tr(tags$td("Change activity-to-resource mapping"),
                 tags$td("Edit resource column + update RESOURCE_CLASS_CONFIG"),
-                tags$td(tags$code("WORKFLOW_CONFIG in simulation_engine.R"))),
+                tags$td(tags$code("WORKFLOW_CONFIG in simulation_engine_fast.R"))),
               tags$tr(tags$td("Add a new activity to the sequence"),
                 tags$td("Add row to WORKFLOW_CONFIG + update workload formula"),
-                tags$td(tags$code("simulation_engine.R"))),
+                tags$td(tags$code("simulation_engine_fast.R"))),
               tags$tr(tags$td("Custom sequence from file"),
                 tags$td("Place workflow_config.csv alongside assumptions CSV"),
                 tags$td(tags$code("workflow_config.csv (see template)")))

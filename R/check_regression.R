@@ -1,22 +1,23 @@
 # check_regression.R
 # -----------------------------------------------------------------------------
 # Proves simulation_engine_fast.R is numerically identical to the original
-# simulation_engine.R, then reports the speedup. Round-1 perf changes only
-# touched output *construction* (per-iteration tibble -> list/data.frame +
+# archive/simulation_engine.R, then reports the speedup. Round-1 perf changes
+# only touched output *construction* (per-iteration tibble -> list/data.frame +
 # columnar assembly) and added keep_logs/collect_well_details skip flags; no
 # arithmetic and no RNG draw was altered, so results must match to fp precision.
 #
-# Run (with BOTH files + this script in the same folder):
+# Run from R/ (the original engine lives in archive/, kept only as this
+# script's reference oracle -- app.R never sources it):
 #   Rscript check_regression.R
 #
 # PASS criterion: every line prints IDENTICAL and the final line says ALL PASS.
 # Do NOT adopt the fast engine in app.R unless this passes.
 # -----------------------------------------------------------------------------
 
-stopifnot(file.exists("simulation_engine.R"), file.exists("simulation_engine_fast.R"))
+stopifnot(file.exists("archive/simulation_engine.R"), file.exists("simulation_engine_fast.R"))
 
-orig <- new.env(); sys.source("simulation_engine.R",      envir = orig)
-fast <- new.env(); sys.source("simulation_engine_fast.R", envir = fast)
+orig <- new.env(); sys.source("archive/simulation_engine.R", envir = orig)
+fast <- new.env(); sys.source("simulation_engine_fast.R",    envir = fast)
 sys.source("risk_library_engine.R", envir = fast)  # build_risk_table(); risk_library defaults to NULL, no behavior change
 
 # ---- synthetic inputs (same schema the engine queries) ----------------------

@@ -1,6 +1,6 @@
 # test_recommendations.R
 # Property checks for recommendations.R. Run: Rscript test_recommendations.R
-ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "simulation_engine.R"
+ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
 suppressPackageStartupMessages({
   source(ENGINE); source("risk_library_engine.R")
   source("bottleneck_explain.R"); source("recommendations.R")
