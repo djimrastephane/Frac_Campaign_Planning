@@ -151,6 +151,24 @@ find_param_cell_errors <- function(df) {
   bad
 }
 
+# Renames the internal snake_case columns back to load_master_assumptions()'s
+# expected raw CSV headers (e.g. "variable" -> "Variable / Risk Event"), so a
+# downloaded grid CSV can be re-uploaded via assumption_file/params_file
+# without a "missing column" error -- a round-trip load_master_assumptions()
+# wouldn't otherwise tolerate, since it looks for the exact original header
+# text, not the post-clean_names() name.
+assumptions_to_template_headers <- function(df) {
+  rename_map <- c(
+    category = "Category", variable = "Variable / Risk Event", type = "Type",
+    probability = "Probability", min_days = "Min Days",
+    most_likely_days = "Most Likely Days", max_days = "Max Days",
+    simulation_impact = "Simulation Impact", scope = "Scope"
+  )
+  matched <- intersect(names(rename_map), names(df))
+  names(df)[match(matched, names(df))] <- rename_map[matched]
+  df
+}
+
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
   if (length(x) == 0 || is.na(x)) return("N/A")
@@ -1055,6 +1073,17 @@ ui <- page_sidebar(
           "silently fall back to a default. ", tags$strong("Probability, Min/Most Likely/Max Days"),
           ", and the notes column are editable. Currently sourced from the uploaded ",
           "master_risks_assumptions.csv, or the bundled template if none is uploaded."),
+        layout_columns(
+          col_widths = c(6, 6),
+          fileInput("params_file", "Upload parameters CSV (optional)", accept = ".csv"),
+          div(class = "text-end",
+            actionButton("reset_params_table", "Reset to template defaults", class = "btn-sm btn-outline-secondary me-2"),
+            downloadButton("download_params_table", "Download as CSV", class = "btn-sm")
+          )
+        ),
+        helpText(class = "text-muted small mt-n2",
+          "Same column layout as master_risks_assumptions.csv — rows that aren't ",
+          "Campaign Setup / Base Operation type are ignored on upload."),
         rHandsontableOutput("params_table_hot"),
         uiOutput("params_table_status")
       ),
@@ -1143,6 +1172,31 @@ server <- function(input, output, session) {
     locked_rows_rv(default_assumptions_split$locked)
     risk_rows_seed_rv(default_assumptions_split$risk)
   })
+
+  # Dedicated upload/download/reset for just the Parameters table -- unlike
+  # assumption_file above, this only ever touches locked_rows_rv(); any risk
+  # rows present in the uploaded CSV are ignored.
+  observeEvent(input$params_file, {
+    split <- tryCatch(
+      split_assumptions_locked_risk(load_master_assumptions(input$params_file$datapath)),
+      error = function(e) {
+        showNotification(paste("Parameters file error:", conditionMessage(e)), type = "error", duration = 10)
+        NULL
+      }
+    )
+    if (!is.null(split)) locked_rows_rv(split$locked)
+  })
+
+  observeEvent(input$reset_params_table, {
+    locked_rows_rv(default_assumptions_split$locked)
+  })
+
+  output$download_params_table <- downloadHandler(
+    filename = function() "parameters.csv",
+    content = function(file) {
+      write.csv(assumptions_to_template_headers(current_locked_rows()), file, row.names = FALSE)
+    }
+  )
 
   # Custom "Remove row" menu item: confirm() before calling Handsontable's
   # own alter('remove_row', ...) -- the default item removes immediately
@@ -1249,7 +1303,7 @@ server <- function(input, output, session) {
   output$download_risk_rows <- downloadHandler(
     filename = function() "risk_rows.csv",
     content = function(file) {
-      write.csv(current_risk_rows(), file, row.names = FALSE)
+      write.csv(assumptions_to_template_headers(current_risk_rows()), file, row.names = FALSE)
     }
   )
 
