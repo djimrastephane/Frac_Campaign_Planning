@@ -130,6 +130,27 @@ find_risk_cell_errors <- function(df) {
   bad
 }
 
+# Same idea as find_risk_cell_errors(), scoped to the Parameters grid
+# (Campaign Setup / Base Operation rows). Only the triangle-ordering check
+# applies here -- probability range, name, and scope checks in
+# validate_assumptions() are risk-row-only and don't apply to this set.
+find_param_cell_errors <- function(df) {
+  if (nrow(df) == 0) return(list())
+  col_idx <- function(name) match(name, names(df)) - 1L
+  bad <- list()
+  tri_idx <- which(
+    !is.na(df$min_days) & !is.na(df$most_likely_days) & !is.na(df$max_days) &
+      !(df$min_days <= df$most_likely_days & df$most_likely_days <= df$max_days)
+  )
+  if (length(tri_idx) > 0) {
+    for (col_name in c("min_days", "most_likely_days", "max_days")) {
+      ci <- col_idx(col_name)
+      for (r in tri_idx) bad[[length(bad) + 1]] <- list(row = r - 1L, col = ci)
+    }
+  }
+  bad
+}
+
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
   if (length(x) == 0 || is.na(x)) return("N/A")
@@ -210,8 +231,8 @@ ui <- page_sidebar(
       ".htInvalidCell { background-color: #f8d7da !important; box-shadow: inset 0 0 0 1px #dc3545; }"
     )),
     tags$script(HTML("
-      Shiny.addCustomMessageHandler('risk_rows_highlight', function(msg) {
-        var widget = HTMLWidgets.find('#risk_rows_hot');
+      Shiny.addCustomMessageHandler('grid_cell_highlight', function(msg) {
+        var widget = HTMLWidgets.find('#' + msg.id);
         if (!widget || !widget.hot) return;
         var hot = widget.hot;
         var nRows = hot.countRows();
@@ -1026,13 +1047,16 @@ ui <- page_sidebar(
     nav_panel(
       "Risk Editor",
       card(
-        card_header("Parameters (read-only)"),
+        card_header("Parameters"),
         p(class = "text-muted small",
-          "Campaign Setup and Base Operation rows — locked-name, looked up by exact ",
-          "name by the engine, so they are not editable here. Currently sourced from ",
-          "the uploaded master_risks_assumptions.csv, or the bundled template if none ",
-          "is uploaded."),
-        rHandsontableOutput("params_table_hot")
+          "Campaign Setup and Base Operation rows. ", tags$strong("Category, Variable, Type"),
+          ", and the risk-only ", tags$strong("Scope"), "/consequence columns are locked — the ",
+          "engine looks these rows up by exact name, and renaming or deleting one makes it ",
+          "silently fall back to a default. ", tags$strong("Probability, Min/Most Likely/Max Days"),
+          ", and the notes column are editable. Currently sourced from the uploaded ",
+          "master_risks_assumptions.csv, or the bundled template if none is uploaded."),
+        rHandsontableOutput("params_table_hot"),
+        uiOutput("params_table_status")
       ),
       card(
         card_header("Edit risk rows directly — no CSV required"),
@@ -1045,7 +1069,7 @@ ui <- page_sidebar(
           col_widths = c(8, 4),
           div(),
           div(class = "text-end",
-            actionButton("reset_risk_rows", "Reset to template defaults", class = "btn-sm btn-outline-secondary me-2"),
+            actionButton("reset_risk_rows", "Reset both tables to template defaults", class = "btn-sm btn-outline-secondary me-2"),
             downloadButton("download_risk_rows", "Download as CSV", class = "btn-sm")
           )
         ),
@@ -1138,8 +1162,22 @@ server <- function(input, output, session) {
   ")
 
   output$params_table_hot <- renderRHandsontable({
-    rhandsontable(locked_rows_rv(), useTypes = TRUE, stretchH = "all",
-                  contextMenu = FALSE, readOnly = TRUE)
+    df <- locked_rows_rv()
+    rhandsontable(df, useTypes = TRUE, stretchH = "all", contextMenu = FALSE) %>%
+      hot_col("category", readOnly = TRUE) %>%
+      hot_col("variable", readOnly = TRUE) %>%
+      hot_col("type", readOnly = TRUE) %>%
+      hot_col("probability", type = "numeric", format = "0.00") %>%
+      hot_col("min_days", type = "numeric", format = "0.00") %>%
+      hot_col("most_likely_days", type = "numeric", format = "0.00") %>%
+      hot_col("max_days", type = "numeric", format = "0.00") %>%
+      hot_col("simulation_impact", type = "text") %>%
+      hot_col("scope", readOnly = TRUE) %>%
+      hot_col("extra_wireline_runs", readOnly = TRUE) %>%
+      hot_col("extra_ct_days", readOnly = TRUE) %>%
+      hot_col("extra_milling_plugs", readOnly = TRUE) %>%
+      hot_col("extra_testing_days", readOnly = TRUE) %>%
+      hot_col("extra_frac_days", readOnly = TRUE)
   })
 
   output$risk_rows_hot <- renderRHandsontable({
@@ -1166,17 +1204,38 @@ server <- function(input, output, session) {
     if (!is.null(input$risk_rows_hot)) hot_to_r(input$risk_rows_hot) else risk_rows_seed_rv()
   })
 
+  current_locked_rows <- reactive({
+    if (!is.null(input$params_table_hot)) hot_to_r(input$params_table_hot) else locked_rows_rv()
+  })
+
   # Push cell-level red highlighting to the grid on every edit, without a
   # full renderRHandsontable() re-render (which would rebuild the DOM and
   # drop the user's cursor/selection mid-edit).
   observeEvent(current_risk_rows(), {
     bad_cells <- find_risk_cell_errors(current_risk_rows())
-    session$sendCustomMessage("risk_rows_highlight", list(cells = bad_cells))
+    session$sendCustomMessage("grid_cell_highlight", list(id = "risk_rows_hot", cells = bad_cells))
+  })
+
+  observeEvent(current_locked_rows(), {
+    bad_cells <- find_param_cell_errors(current_locked_rows())
+    session$sendCustomMessage("grid_cell_highlight", list(id = "params_table_hot", cells = bad_cells))
+  })
+
+  output$params_table_status <- renderUI({
+    df <- current_locked_rows()
+    bad_cells <- find_param_cell_errors(df)
+    n_bad_rows <- length(unique(vapply(bad_cells, function(c) c$row, integer(1))))
+    if (n_bad_rows == 0) {
+      tags$p(class = "small text-success mt-2 mb-0", sprintf("✓ %d parameter row(s) — valid.", nrow(df)))
+    } else {
+      tags$p(class = "small text-danger mt-2 mb-0",
+        sprintf("✘ %d row(s) violate Min ≤ Most Likely ≤ Max — fix the highlighted cells.", n_bad_rows))
+    }
   })
 
   output$risk_rows_status <- renderUI({
     res <- tryCatch(
-      list(ok = TRUE, df = validate_assumptions(bind_rows(locked_rows_rv(), current_risk_rows()))),
+      list(ok = TRUE, df = validate_assumptions(bind_rows(current_locked_rows(), current_risk_rows()))),
       error = function(e) list(ok = FALSE, error = conditionMessage(e))
     )
     if (isTRUE(res$ok)) {
@@ -1215,7 +1274,7 @@ server <- function(input, output, session) {
       risk_library <- read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
         validate_risk_consequence_library()
 
-      assumptions <- bind_rows(locked_rows_rv(), current_risk_rows()) %>%
+      assumptions <- bind_rows(current_locked_rows(), current_risk_rows()) %>%
         validate_assumptions()
       input_warnings <- c(
         attr(historical, "input_warnings") %||% character(0),
