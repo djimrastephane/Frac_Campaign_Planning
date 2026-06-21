@@ -86,6 +86,50 @@ split_assumptions_locked_risk <- function(df) {
 }
 default_assumptions_split <- split_assumptions_locked_risk(default_assumptions_df)
 
+# Cell-level error finder for the Risk Editor grid: mirrors the checks in
+# validate_assumptions() (R/validate_inputs.R), but instead of stop()-ing on
+# the first failing category, it collects every offending (row, col) pair so
+# the UI can highlight them all at once. validate_assumptions() itself stays
+# the single source of truth for whether the data is actually fit to run --
+# this is purely for live visual feedback while editing.
+find_risk_cell_errors <- function(df) {
+  if (nrow(df) == 0) return(list())
+  col_idx <- function(name) match(name, names(df)) - 1L  # 0-based for Handsontable
+  bad <- list()
+  add_bad <- function(row_idx, col_name) {
+    ci <- col_idx(col_name)
+    for (r in row_idx) bad[[length(bad) + 1]] <<- list(row = r - 1L, col = ci)
+  }
+
+  empty_idx <- which(is.na(df$variable) | trimws(df$variable) == "")
+  if (length(empty_idx) > 0) add_bad(empty_idx, "variable")
+
+  keys <- tolower(trimws(df$variable))
+  dup_idx <- which(nzchar(keys) & keys %in% keys[duplicated(keys) & nzchar(keys)])
+  if (length(dup_idx) > 0) add_bad(dup_idx, "variable")
+
+  prob_idx <- which(is.na(df$probability) | df$probability < 0 | df$probability > 1)
+  if (length(prob_idx) > 0) add_bad(prob_idx, "probability")
+
+  tri_idx <- which(
+    !is.na(df$min_days) & !is.na(df$most_likely_days) & !is.na(df$max_days) &
+      !(df$min_days <= df$most_likely_days & df$most_likely_days <= df$max_days)
+  )
+  if (length(tri_idx) > 0) {
+    add_bad(tri_idx, "min_days"); add_bad(tri_idx, "most_likely_days"); add_bad(tri_idx, "max_days")
+  }
+
+  if ("scope" %in% names(df)) {
+    bad_scope_idx <- which(
+      !is.na(df$scope) & trimws(df$scope) != "" &
+        !tolower(trimws(df$scope)) %in% c("stage", "well", "campaign")
+    )
+    if (length(bad_scope_idx) > 0) add_bad(bad_scope_idx, "scope")
+  }
+
+  bad
+}
+
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
   if (length(x) == 0 || is.na(x)) return("N/A")
@@ -160,6 +204,30 @@ ui <- page_sidebar(
   title = "Frac Campaign Planning Simulator",
   theme = bs_theme(version = 5, preset = "shiny"),
   fillable = FALSE,
+
+  tags$head(
+    tags$style(HTML(
+      ".htInvalidCell { background-color: #f8d7da !important; box-shadow: inset 0 0 0 1px #dc3545; }"
+    )),
+    tags$script(HTML("
+      Shiny.addCustomMessageHandler('risk_rows_highlight', function(msg) {
+        var widget = HTMLWidgets.find('#risk_rows_hot');
+        if (!widget || !widget.hot) return;
+        var hot = widget.hot;
+        var nRows = hot.countRows();
+        var nCols = hot.countCols();
+        for (var r = 0; r < nRows; r++) {
+          for (var c = 0; c < nCols; c++) {
+            hot.setCellMeta(r, c, 'className', '');
+          }
+        }
+        (msg.cells || []).forEach(function(cell) {
+          hot.setCellMeta(cell.row, cell.col, 'className', 'htInvalidCell');
+        });
+        hot.render();
+      });
+    "))
+  ),
 
   sidebar = sidebar(
     width = 340,
@@ -1096,6 +1164,14 @@ server <- function(input, output, session) {
   # the widget has rendered (e.g. on a different tab during initial load).
   current_risk_rows <- reactive({
     if (!is.null(input$risk_rows_hot)) hot_to_r(input$risk_rows_hot) else risk_rows_seed_rv()
+  })
+
+  # Push cell-level red highlighting to the grid on every edit, without a
+  # full renderRHandsontable() re-render (which would rebuild the DOM and
+  # drop the user's cursor/selection mid-edit).
+  observeEvent(current_risk_rows(), {
+    bad_cells <- find_risk_cell_errors(current_risk_rows())
+    session$sendCustomMessage("risk_rows_highlight", list(cells = bad_cells))
   })
 
   output$risk_rows_status <- renderUI({
