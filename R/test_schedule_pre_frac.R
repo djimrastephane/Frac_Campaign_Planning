@@ -1,0 +1,131 @@
+# test_schedule_pre_frac.R
+# Property checks for schedule_pre_frac() (event-mode pre-frac scheduler,
+# R/simulation_engine_fast.R). Tests the scheduler in isolation against
+# synthetic well-level workloads -- no need to run the full Monte Carlo loop.
+# Run: Rscript test_schedule_pre_frac.R
+ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
+suppressPackageStartupMessages({ source(ENGINE) })
+
+ok <- TRUE
+chk <- function(c, m) { cat(sprintf("  [%s] %s\n", if (isTRUE(c)) "PASS" else "FAIL", m)); ok <<- ok && isTRUE(c) }
+
+# -- 1. Single well, single unit of each resource: finish times match a
+# straight hand calculation. Frac's fleet timeline is independent of CT and
+# wireline (the fleet can start pumping stage 1 as soon as it's free -- only
+# the well's FINISH is bounded below by wireline finishing, not its start,
+# per the well-level pacing approximation). Here frac_workload (8) on its own
+# already exceeds wireline's finish (5), so frac's own duration paces the well.
+r1 <- schedule_pre_frac(
+  well_order_index = 1,
+  ct_workload_days = 2, wireline_workload_days = 3, frac_workload_days = 8,
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(r1$well_schedule$ct_finish_day == 2, "single well: CT finishes at t=2")
+chk(r1$well_schedule$wireline_start_day == 2, "single well: wireline starts at t=2, gated by CT finishing")
+chk(r1$well_schedule$wireline_finish_day == 5, "single well: wireline finishes at t=2+3=5")
+chk(r1$well_schedule$frac_start_day == 0, "single well: frac starts at t=0, independent of CT/wireline timing")
+chk(r1$well_schedule$frac_finish_day == 8, "single well: frac finishes at t=0+8=8 (its own workload paces the well here)")
+chk(r1$total_wireline_readiness_delay_days == 0,
+    "single well: frac's own workload (8) already exceeds wireline finish (5) -- wireline causes NO extra wait")
+
+# -- 2. Frac workload shorter than wireline's: frac can't finish before its
+# own wireline does (well-level pacing approximation), and the wait this
+# costs frac must be measured LOCALLY (wireline finish minus what frac's
+# finish would have been on its own), not as frac_finish - wireline_finish --
+# the latter compares two cumulative, possibly unrelated queue positions and
+# is wrong in general (see schedule_pre_frac()'s wireline_wait_days comment).
+r2 <- schedule_pre_frac(
+  well_order_index = 1,
+  ct_workload_days = 0, wireline_workload_days = 8, frac_workload_days = 1,
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(r2$well_schedule$frac_finish_day == 8, "frac cannot finish before wireline (max(1, 8) = 8)")
+chk(r2$total_wireline_readiness_delay_days == 7,
+    "wireline (finishes at 8) forces frac to wait 7 days beyond its own 1-day workload")
+
+# -- 3. Two wells, 1 wireline unit: real contention -- well 2's wireline start
+# is gated by well 1's wireline finish, not by a per-well formula.
+r3 <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(0, 0), wireline_workload_days = c(4, 4), frac_workload_days = c(0, 0),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(r3$well_schedule$wireline_start_day[2] == 4, "well 2's wireline is gated by well 1's wireline finishing (single shared unit)")
+chk(r3$well_schedule$wireline_finish_day[2] == 8, "well 2's wireline finishes at 8 (4+4, queued behind well 1)")
+
+# -- 4. Two wells, 2 wireline units, asymmetric workload: a unit that
+# finishes well 1 early picks up well 2 immediately -- the actual capability
+# this scheduler adds over the formula path (which has no notion of a unit
+# "racing ahead" to the next well).
+r4 <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(0, 0), wireline_workload_days = c(2, 10), frac_workload_days = c(0, 0),
+  ct_units = 1, wireline_units = 2, frac_fleets = 1
+)
+chk(r4$well_schedule$wireline_start_day[2] == 0, "well 2 starts immediately on the second unit, not gated by well 1")
+chk(r4$well_schedule$wireline_unit[1] != r4$well_schedule$wireline_unit[2], "wells 1 and 2 are assigned to different wireline units")
+
+# -- 5. Same asymmetric case but with only 1 wireline unit: well 2 must now
+# queue behind well 1 -- confirms contention actually bites when capacity is
+# tight, not just that the algorithm runs.
+r5 <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(0, 0), wireline_workload_days = c(2, 10), frac_workload_days = c(0, 0),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(r5$well_schedule$wireline_start_day[2] == 2, "with 1 unit, well 2 queues behind well 1's wireline (starts at t=2)")
+chk(r5$well_schedule$wireline_finish_day[2] > r4$well_schedule$wireline_finish_day[2],
+    "dropping wireline_units from 2 to 1 makes well 2 finish later (real contention, not masked by a formula)")
+
+# -- 6. CT runs on an independent timeline -- its schedule for well 2 is not
+# gated by well 1's frac finishing, since CT and frac are separate resource
+# pools (this is what lets CT "run in parallel with the previous well's
+# frac" fall out of the model instead of being a special-cased formula).
+r6 <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(3, 3), wireline_workload_days = c(0, 0), frac_workload_days = c(20, 1),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(r6$well_schedule$ct_start_day[2] == 3, "well 2's CT starts right after well 1's CT (t=3), unaffected by well 1's long frac (t=20)")
+chk(r6$well_schedule$ct_finish_day[2] == 6, "well 2's CT finishes at t=6, long before well 1's frac finishes at t=20")
+
+# -- 7. Multiple frac fleets: wells distributed by earliest availability, not
+# round-robin -- a fleet that finishes a short well early picks up the next
+# short well instead of sitting idle while a round-robin assignment would
+# hand it to the other fleet.
+r7 <- schedule_pre_frac(
+  well_order_index = 1:3,
+  ct_workload_days = c(0, 0, 0), wireline_workload_days = c(0, 0, 0),
+  frac_workload_days = c(1, 1, 10),
+  ct_units = 1, wireline_units = 1, frac_fleets = 2
+)
+chk(r7$well_schedule$frac_fleet[1] != r7$well_schedule$frac_fleet[2],
+    "wells 1 and 2 (both available at t=0) are split across the 2 fleets, not serialized on one")
+chk(r7$well_schedule$frac_start_day[3] == 1,
+    "well 3 starts as soon as a fleet frees up (t=1), not after both short wells serialize on one fleet")
+chk(r7$well_schedule$frac_finish_day[3] == 11, "well 3 (workload 10) finishes at t=11 given 2 fleets and 2 short wells ahead of it")
+
+# -- 8. Busy-time totals are exact sums of input workloads, independent of
+# contention/queueing -- a sanity invariant that must always hold regardless
+# of unit counts.
+r8 <- schedule_pre_frac(
+  well_order_index = 1:3,
+  ct_workload_days = c(1, 2, 3), wireline_workload_days = c(4, 5, 6), frac_workload_days = c(7, 8, 9),
+  ct_units = 1, wireline_units = 2, frac_fleets = 2
+)
+chk(r8$total_ct_busy_days == 6, "total CT busy-days is the exact sum of CT workload (1+2+3)")
+chk(r8$total_wireline_busy_days == 15, "total wireline busy-days is the exact sum of wireline workload (4+5+6)")
+chk(r8$total_frac_busy_days == 24, "total frac busy-days is the exact sum of frac workload (7+8+9)")
+
+# -- 9. Empty input (n_wells = 0) returns a degenerate-but-valid result
+# rather than erroring -- matches schedule_post_frac_milling()'s n==0 guard.
+r9 <- schedule_pre_frac(
+  well_order_index = integer(0),
+  ct_workload_days = numeric(0), wireline_workload_days = numeric(0), frac_workload_days = numeric(0),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+chk(nrow(r9$well_schedule) == 0, "n_wells = 0 returns an empty schedule, not an error")
+chk(r9$total_wireline_readiness_delay_days == 0, "n_wells = 0: aggregate totals are all zero")
+
+cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
+if (!ok) quit(status = 1)

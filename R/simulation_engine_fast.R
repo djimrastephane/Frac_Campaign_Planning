@@ -734,6 +734,140 @@ build_zipper_benefit_breakdown <- function(summary, zipper_efficiency = 0.75) {
   )
 }
 
+# ---------------------------------------------------------------------------
+# Pre-frac scheduler (v18, opt-in via pre_frac_scheduling = "event"):
+# CT cleanout, wireline readiness, and frac pumping as real resource-
+# availability-vector queues, instead of the workload-accounting formulas
+# in simulate_campaign_detailed()'s two-pass duration calc. Same pattern as
+# schedule_post_frac_milling() below (preallocated vectors, one pass over
+# wells in arrival order, earliest-available-unit assignment).
+#
+# Per well, in order: CT -> Wireline -> Frac.
+#   CT:       independent timeline -- naturally runs in parallel with the
+#             previous well's frac, since nothing ties ct_avail to frac_avail.
+#   Wireline: assigned to whichever unit (across the whole pool) is
+#             earliest-free, NOT tied to "this well's own pace" -- a unit
+#             that finished well i-1 early can start well i+1 immediately.
+#             This is the actual capability gap this scheduler closes.
+#   Frac:     assigned to whichever frac fleet is earliest-free; a well's
+#             frac cannot FINISH before its own wireline finishes (the
+#             well-level approximation of stage-by-stage pacing -- frac and
+#             wireline still can't be modeled as two independent sequential
+#             blocks at this granularity, see plan).
+#
+# mode_factor (zipper pump-speed multiplier) and frac_tree_constraint_delay_days
+# (zipper wellhead-swap overhead) are NOT modeled here as queueing effects --
+# they're baked into frac_workload_days before it reaches this function,
+# exactly as in the formula path. well_transition_days is likewise already
+# folded into frac_workload_days (frac-fleet downtime).
+#
+# Returns one row per well (in well_index order) with start/finish times for
+# each resource, plus per-resource busy-time totals for the summary rollup.
+schedule_pre_frac <- function(well_order_index,
+                              ct_workload_days,
+                              wireline_workload_days,
+                              frac_workload_days,
+                              ct_units,
+                              wireline_units,
+                              frac_fleets) {
+  n <- length(well_order_index)
+  if (n == 0) {
+    return(list(
+      well_schedule = tibble(),
+      total_ct_busy_days = 0,
+      total_wireline_busy_days = 0,
+      total_frac_busy_days = 0,
+      total_wireline_readiness_delay_days = 0
+    ))
+  }
+
+  ct_units       <- max(1L, as.integer(round(ct_units)))
+  wireline_units <- max(1L, as.integer(round(wireline_units)))
+  frac_fleets    <- max(1L, as.integer(round(frac_fleets)))
+
+  ct_avail       <- rep(0, ct_units)
+  wireline_avail <- rep(0, wireline_units)
+  frac_avail     <- rep(0, frac_fleets)
+
+  v_well_index    <- integer(n)
+  v_ct_start      <- numeric(n)
+  v_ct_finish     <- numeric(n)
+  v_wireline_start  <- numeric(n)
+  v_wireline_finish <- numeric(n)
+  v_frac_start    <- numeric(n)
+  v_frac_finish   <- numeric(n)
+  v_wireline_unit <- integer(n)
+  v_frac_fleet    <- integer(n)
+  v_wireline_wait_days <- numeric(n)
+
+  for (pos in seq_len(n)) {
+    i <- well_order_index[pos]
+
+    # --- CT: earliest-available unit, independent of frac/wireline timelines.
+    ct_unit <- which.min(ct_avail)
+    ct_start <- ct_avail[ct_unit]
+    ct_finish <- ct_start + ct_workload_days[pos]
+    ct_avail[ct_unit] <- ct_finish
+
+    # --- Wireline: earliest-available unit across the whole pool, gated only
+    # on this well's own CT finishing (cleanout/cement-eval must clear first).
+    wl_unit <- which.min(wireline_avail)
+    wl_start <- max(wireline_avail[wl_unit], ct_finish)
+    wl_finish <- wl_start + wireline_workload_days[pos]
+    wireline_avail[wl_unit] <- wl_finish
+
+    # --- Frac: earliest-available fleet; can't finish before this well's
+    # wireline does (well-level pacing approximation).
+    #
+    # wireline_wait_days is the LOCAL extra time this well's frac finish was
+    # pushed out by waiting on wireline, i.e. how much the max() below bites
+    # -- NOT frac_finish - wireline_finish, which would compare two unrelated
+    # cumulative-queue positions (the frac fleet may be many wells behind the
+    # wireline pool's position purely from FIFO queueing, independent of any
+    # real pacing effect) and blow up meaninglessly as wireline_units grows.
+    fleet <- which.min(frac_avail)
+    frac_start <- frac_avail[fleet]
+    frac_finish_unpaced <- frac_start + frac_workload_days[pos]
+    frac_finish <- max(frac_finish_unpaced, wl_finish)
+    frac_avail[fleet] <- frac_finish
+
+    v_well_index[pos]      <- i
+    v_ct_start[pos]        <- ct_start
+    v_ct_finish[pos]       <- ct_finish
+    v_wireline_start[pos]  <- wl_start
+    v_wireline_finish[pos] <- wl_finish
+    v_frac_start[pos]      <- frac_start
+    v_frac_finish[pos]     <- frac_finish
+    v_wireline_unit[pos]   <- wl_unit
+    v_frac_fleet[pos]      <- fleet
+    v_wireline_wait_days[pos] <- max(0, wl_finish - frac_finish_unpaced)
+  }
+
+  sched <- tibble(
+    well_index = v_well_index,
+    ct_start_day = v_ct_start,
+    ct_finish_day = v_ct_finish,
+    wireline_unit = v_wireline_unit,
+    wireline_start_day = v_wireline_start,
+    wireline_finish_day = v_wireline_finish,
+    frac_fleet = v_frac_fleet,
+    frac_start_day = v_frac_start,
+    frac_finish_day = v_frac_finish,
+    wireline_wait_days = v_wireline_wait_days
+  )
+
+  list(
+    well_schedule = sched,
+    total_ct_busy_days = sum(ct_workload_days),
+    total_wireline_busy_days = sum(wireline_workload_days),
+    total_frac_busy_days = sum(frac_workload_days),
+    # Sum of the local per-well wireline_wait_days above -- replaces the
+    # formula path's pmax(wireline_fleet_days - frac_fleet_days_est, 0)
+    # *estimate* with an actual value read off the schedule.
+    total_wireline_readiness_delay_days = sum(v_wireline_wait_days)
+  )
+}
+
 schedule_post_frac_milling <- function(release_times,
                                        milling_workload_days,
                                        flowback_testing_days,
@@ -1102,8 +1236,20 @@ simulate_campaign_detailed <- function(
     # --- perf (round 1): skip building per-iteration output frames the caller
     # does not need. Defaults preserve the original return value exactly.
     keep_logs = TRUE,            # build risk_event_log (FALSE for screening runs)
-    collect_well_details = TRUE  # build per-well details (FALSE for screening runs)
+    collect_well_details = TRUE, # build per-well details (FALSE for screening runs)
+    # Pre-frac scheduling mode (dev-facing, not yet exposed in the UI):
+    #   "formula" (default) -- existing workload-accounting two-pass calc
+    #             below. Unchanged behavior; this is what check_regression.R
+    #             pins as bit-identical to the original engine.
+    #   "event"   -- routes CT/wireline/frac through schedule_pre_frac(),
+    #             a real resource-availability-vector scheduler (same pattern
+    #             as schedule_post_frac_milling() below). See
+    #             R/check_scheduling_modes.R for a side-by-side comparison;
+    #             this is NOT yet validated as a drop-in replacement, hence
+    #             the opt-in flag rather than a default-path change.
+    pre_frac_scheduling = c("formula", "event")
 ) {
+  pre_frac_scheduling <- match.arg(pre_frac_scheduling)
   if (!is.null(seed)) set.seed(seed)
 
   n_wells <- as.integer(n_wells)
@@ -1427,7 +1573,43 @@ simulate_campaign_detailed <- function(
         }
       )
 
-    total_frac_related_days <- sum(well_df$frac_related_days, na.rm = TRUE)
+    # --- Event-mode override (pre_frac_scheduling == "event") -----------------
+    # Replaces the formula-based ct_fleet_days/frac_fleet_days/frac_related_days
+    # above with values read off a real resource-availability-vector schedule
+    # (schedule_pre_frac(), same pattern as schedule_post_frac_milling()).
+    # well_df's row order here already matches campaign order -- pad_id/well_id
+    # are assigned in well_index order by build_pad_assignment_cached(), so the
+    # arrange(pad_id, well_id) below is a defensive no-op reorder, not a real
+    # one -- safe to schedule against the current row order directly.
+    event_frac_finish_day <- NULL
+    if (pre_frac_scheduling == "event") {
+      pf <- schedule_pre_frac(
+        well_order_index = seq_len(nrow(well_df)),
+        ct_workload_days = well_df$ct_workload_days,
+        wireline_workload_days = well_df$wireline_stage_readiness_days,
+        frac_workload_days = well_df$frac_workload_days,
+        ct_units = ct_units,
+        wireline_units = wireline_units,
+        frac_fleets = frac_fleets
+      )
+      event_frac_finish_day <- pf$well_schedule$frac_finish_day
+      well_df <- well_df %>%
+        mutate(
+          # Each well's actual busy-time on the resource that handled it,
+          # replacing the workload/units division estimate.
+          frac_fleet_days = well_df$frac_workload_days,
+          wireline_fleet_days = well_df$wireline_stage_readiness_days,
+          ct_fleet_days = well_df$ct_workload_days,
+          # Local per-well wait, read off the schedule -- not the formula's
+          # zipper-only pmax() estimate. See schedule_pre_frac()'s
+          # wireline_wait_days for why this must not be frac_finish minus
+          # wireline_finish (those are unrelated cumulative queue positions).
+          wireline_readiness_delay_days = pf$well_schedule$wireline_wait_days
+        )
+      total_frac_related_days <- max(event_frac_finish_day)
+    } else {
+      total_frac_related_days <- sum(well_df$frac_related_days, na.rm = TRUE)
+    }
 
     # Pass-1 campaign duration = frac critical path (milling excluded here).
     # This is the actual calendar window CT is deployed over.
@@ -1456,7 +1638,7 @@ simulate_campaign_detailed <- function(
     well_df <- well_df %>%
       arrange(pad_id, well_id) %>%
       mutate(
-        frac_release_day = cumsum(frac_related_days),
+        frac_release_day = if (pre_frac_scheduling == "event") event_frac_finish_day else cumsum(frac_related_days),
         flowback_testing_days = flowback_testing_workload_per_well
       )
 
