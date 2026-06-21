@@ -152,6 +152,11 @@ project owner.
 
 # Screenshots
 
+*Curated for completion engineers and project managers — executive summary, decision
+tradeoffs, operational risk, resource bottlenecks, and cost/schedule optimization. For
+the full tab-by-tab set (Workflow reference, Historical Learning, Sensitivity, Bayesian
+Update, What-If, Risk Heatmap), see `docs/images/screenshots/`.*
+
 *Last refreshed: 2026-06-16 (commit `a805beb`). UI labels and panels can drift out of sync
 with these images between refreshes — if something below doesn't match the running app,
 trust the app and regenerate via `Rscript generate_screenshots.R` and
@@ -171,24 +176,6 @@ trust the app and regenerate via `Rscript generate_screenshots.R` and
 
 ### Optimiser — constraint cascade and Pareto search
 ![Optimiser tab](docs/images/screenshots/05_optimiser.png)
-
-### Workflow — operational sequence viewer
-![Workflow tab](docs/images/screenshots/06_workflow.png)
-
-### Historical Learning — distribution fitting and assumption calibration
-![Historical Learning tab](docs/images/screenshots/07_historical_learning.png)
-
-### Sensitivity Analysis — OAT tornado by planning variable
-![Sensitivity tab](docs/images/screenshots/08_sensitivity.png)
-
-### Bayesian Update — prior vs posterior duration and risk probability update
-![Bayesian Update tab](docs/images/screenshots/09_bayesian_update.png)
-
-### What-If Builder — scenario variant comparison
-![What-If tab](docs/images/screenshots/10_whatif.png)
-
-### Schedule Risk Heatmap — expected delay by well and risk type, well risk ranking
-![Schedule Risk Heatmap](docs/images/screenshots/11_risk_heatmap.png)
 
 ---
 
