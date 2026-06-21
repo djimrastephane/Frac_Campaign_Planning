@@ -16,7 +16,7 @@
 #   - If future.apply is installed and options(optimiser.use_future=TRUE),
 #     uses future_lapply for a cross-platform multiprocess backend.
 #
-# Source AFTER simulation_engine.R. Then call optimise_campaign_scenarios_par()
+# Source AFTER simulation_engine_fast.R. Then call optimise_campaign_scenarios_par()
 # with the same arguments you pass to optimise_campaign_scenarios().
 # -----------------------------------------------------------------------------
 
@@ -164,11 +164,11 @@ optimise_campaign_scenarios_par <- function(
 
 # -----------------------------------------------------------------------------
 # Regression check: prove parallel == sequential, bit-for-bit, then report
-# speedup. Run:  Rscript optimiser_parallel.R   (requires simulation_engine.R
-# and profile_engine.R generators alongside, or it builds its own inputs).
+# speedup. Run:  Rscript optimiser_parallel.R   (requires simulation_engine_fast.R
+# or archive/simulation_engine.R alongside, or it builds its own inputs).
 # -----------------------------------------------------------------------------
 verify_parallel_matches <- function(engine_path = Sys.getenv("ENGINE_PATH", "simulation_engine_fast.R")) {
-  if (!file.exists(engine_path)) engine_path <- "simulation_engine.R"
+  if (!file.exists(engine_path)) engine_path <- "archive/simulation_engine.R"
   source(engine_path)
 
   # Build synthetic inputs inline (self-contained; does NOT source the profiler).
