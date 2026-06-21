@@ -127,5 +127,33 @@ r9 <- schedule_pre_frac(
 chk(nrow(r9$well_schedule) == 0, "n_wells = 0 returns an empty schedule, not an error")
 chk(r9$total_wireline_readiness_delay_days == 0, "n_wells = 0: aggregate totals are all zero")
 
+# -- 10. Ample, uniform capacity must produce a BOUNDED, campaign-length-
+# independent residual wait -- not zero (a real multi-stage pipeline, CT ->
+# wireline -> frac, has a one-time startup transient even with zero workload
+# variance: early on, the serial CT queue's accumulated position can
+# momentarily exceed a still-fresh frac fleet's unpaced finish time, before
+# the fleets build up enough head start that it never recurs). The
+# correctness property that distinguishes this from a real bug is that the
+# residual must NOT grow with n_wells -- a bug here would look like the wait
+# scaling with campaign length; legitimate startup-transient behavior stays
+# flat. Found by direct investigation (see PR discussion): an n_wells = 30
+# check alone is not enough to tell the two apart, hence asserting equality
+# across several very different campaign lengths.
+uniform_wait <- function(n) {
+  schedule_pre_frac(
+    well_order_index = seq_len(n), ct_workload_days = rep(1, n),
+    wireline_workload_days = rep(3, n), frac_workload_days = rep(4, n),
+    ct_units = 1, wireline_units = 3, frac_fleets = 2
+  )$total_wireline_readiness_delay_days
+}
+waits <- sapply(c(30, 100, 300, 1000), uniform_wait)
+chk(length(unique(waits)) == 1,
+    sprintf("ample uniform capacity: residual wait is identical across n_wells = 30/100/300/1000 (got %s)",
+            paste(waits, collapse = ", ")))
+chk(waits[1] > 0,
+    "the residual is genuinely nonzero (a real startup transient), not accidentally zero by construction")
+chk(waits[1] < 5,
+    "the residual is small relative to campaign scale, consistent with a one-time transient, not systemic undersizing")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)
