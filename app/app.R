@@ -1044,9 +1044,9 @@ server <- function(input, output, session) {
       withProgress(message = "Running simulation", value = 0, {
         # Use Bayesian-merged wells if the user has applied an update.
         historical_for_sim <- bayes_merged_wells_rv() %||% dat$historical
-        detailed_runs <- lapply(seq_along(modes), function(mode_index) {
-          base_frac <- (mode_index - 1) / length(modes)
-          args <- list(
+
+        build_run_args <- function(mode_index) {
+          list(
             historical_wells = historical_for_sim,
             assumptions = dat$assumptions,
             n_wells = as.integer(input$n_wells),
@@ -1075,18 +1075,57 @@ server <- function(input, output, session) {
             risk_library = dat$risk_library,
             seed = as.integer(input$seed) + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
           )
-          if (engine_has_progress) {
-            args$progress_callback <- function(i, n) {
-              setProgress(base_frac + (i / n) / length(modes),
-                          detail = sprintf("%s: %d / %d", modes[[mode_index]], i, n))
+        }
+
+        # Compare-both runs Conventional and Zipper as two fully independent
+        # simulate_campaign_detailed() calls -- the single biggest source of
+        # "Run" button latency at Audit-mode/large-campaign scale (each call
+        # alone can take 20-30s; sequential back-to-back is 40-60s of a fully
+        # blocked R session). Fork them across cores with the same
+        # .par_lapply() helper optimiser_parallel.R already uses (and already
+        # regression-tested bit-identical) for the scenario grid, rather than
+        # inventing a second parallel-execution mechanism.
+        #
+        # Fork-based parallelism can't report live per-iteration progress
+        # back from the child process to this session's progress bar, so the
+        # parallel path shows one coarse message instead of the granular
+        # i/n-per-mode detail the sequential path gives -- the only UX
+        # difference; the simulation math and results are identical either
+        # way (see test_compare_both_parallel.R).
+        use_parallel <- length(modes) > 1 &&
+          .Platform$OS.type != "windows" &&
+          parallel::detectCores() > 1
+
+        if (use_parallel) {
+          setProgress(0.1, detail = sprintf("Running %s in parallel...", paste(modes, collapse = " + ")))
+          args_list <- lapply(seq_along(modes), build_run_args)
+          parallel_out <- .par_lapply(
+            seq_along(modes),
+            function(mode_index) {
+              list(result = do.call(simulate_campaign_detailed, args_list[[mode_index]]),
+                   args = args_list[[mode_index]])
+            },
+            n_cores = length(modes)
+          )
+          setProgress(0.9, detail = "Combining results...")
+          detailed_runs <- parallel_out
+        } else {
+          detailed_runs <- lapply(seq_along(modes), function(mode_index) {
+            base_frac <- (mode_index - 1) / length(modes)
+            args <- build_run_args(mode_index)
+            if (engine_has_progress) {
+              args$progress_callback <- function(i, n) {
+                setProgress(base_frac + (i / n) / length(modes),
+                            detail = sprintf("%s: %d / %d", modes[[mode_index]], i, n))
+              }
+            } else {
+              setProgress(base_frac, detail = modes[[mode_index]])
             }
-          } else {
-            setProgress(base_frac, detail = modes[[mode_index]])
-          }
-          res <- do.call(simulate_campaign_detailed, args)
-          args$progress_callback <- NULL  # strip closure so args can be safely re-run later
-          list(result = res, args = args)
-        })
+            res <- do.call(simulate_campaign_detailed, args)
+            args$progress_callback <- NULL  # strip closure so args can be safely re-run later
+            list(result = res, args = args)
+          })
+        }
 
         results_only <- lapply(detailed_runs, `[[`, "result")
         args_by_mode <- setNames(lapply(detailed_runs, `[[`, "args"), modes)
