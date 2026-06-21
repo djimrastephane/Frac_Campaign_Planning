@@ -74,5 +74,27 @@ res_ok <- tryCatch(validate_assumptions(df_ok), error = function(e) e)
 chk(!inherits(res_ok, "error"), "two distinct, valid risk rows pass validation")
 chk(length(attr(res_ok, "input_warnings")) == 0, "valid file produces no warnings")
 
+# -- 7. validate_historical_wells(): the real template passes cleanly.
+HIST_TEMPLATE <- load_historical_wells("../data_templates/historical_wells_template.csv")
+err_hist <- function(df) tryCatch({ validate_historical_wells(df); NULL }, error = function(e) conditionMessage(e))
+chk(is.null(err_hist(HIST_TEMPLATE)), "historical_wells_template.csv passes validation cleanly")
+
+# -- 8. A non-numeric value in a numeric column is a hard error naming the
+# column, row, well, and offending value -- not an opaque downstream R error
+# (and not a silent string-comparison miscount in n_pos_frac/n_pos_mill).
+hist_bad <- HIST_TEMPLATE
+hist_bad$frac_days_per_stage[2] <- "abc"
+e4 <- err_hist(hist_bad)
+chk(!is.null(e4) && grepl("non-numeric", e4, ignore.case = TRUE), "non-numeric value in a numeric column is rejected with a clear message")
+chk(!is.null(e4) && grepl("frac_days_per_stage", e4), "non-numeric error names the offending column")
+chk(!is.null(e4) && grepl("row 2", e4), "non-numeric error names the offending row")
+chk(!is.null(e4) && grepl("abc", e4), "non-numeric error quotes the offending value")
+
+# -- 9. Blank/NA values in a numeric column are NOT flagged as non-numeric
+# (that's a separate, pre-existing soft-warning path for missing data).
+hist_blank <- HIST_TEMPLATE
+hist_blank$milling_days_per_plug[3] <- NA
+chk(is.null(err_hist(hist_blank)), "NA in a numeric column does not trigger the non-numeric check")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)
