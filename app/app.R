@@ -961,10 +961,9 @@ ui <- page_sidebar(
         card_header("Edit risk rows directly — no CSV required"),
         p(class = "text-muted small",
           "Technical / Resource / External risk rows from master_risks_assumptions.csv, ",
-          "editable as a spreadsheet. Right-click a row to insert/remove rows. ",
-          "Campaign Setup and Base Operation rows (locked-name, looked up by exact ",
-          "name by the engine) are not edited here — they still come from the uploaded ",
-          "file, or the bundled template if none is uploaded."),
+          "editable as a spreadsheet. Campaign Setup and Base Operation rows ",
+          "(locked-name, looked up by exact name by the engine) are not edited here — ",
+          "they still come from the uploaded file, or the bundled template if none is uploaded."),
         layout_columns(
           col_widths = c(8, 4),
           div(),
@@ -973,6 +972,10 @@ ui <- page_sidebar(
             downloadButton("download_risk_rows", "Download as CSV", class = "btn-sm")
           )
         ),
+        tags$div(class = "alert alert-info py-2 px-3 small mb-2",
+          tags$strong("Tip: "),
+          "right-click any row in the grid below to insert a new risk above/below it, ",
+          "or to remove that row entirely."),
         rHandsontableOutput("risk_rows_hot"),
         uiOutput("risk_rows_status")
       )
