@@ -20,6 +20,7 @@ library(DT)
 library(janitor)
 library(future)
 library(promises)
+library(rhandsontable)
 
 # The main "Run simulation" button can take 25-55s at Audit-mode/40-well
 # scale (measured). Without this, that call runs synchronously inside the
@@ -70,6 +71,20 @@ source(file.path(project_root, "R", "plots.R"))
 safe_round_df <- function(df, digits = 2) {
   df %>% mutate(across(where(is.numeric), ~ round(.x, digits)))
 }
+
+# The bundled template is the default seed for the Risk Editor grid, and the
+# fallback whenever no assumption_file is uploaded. "Risk" type rows (Technical
+# Risk / Resource Risk / External Risk categories) are user-editable in the
+# grid; everything else (Campaign Setup / Base Operation, locked-name rows
+# the engine looks up by exact name) is passed through unedited.
+default_assumptions_df <- load_master_assumptions(
+  file.path(project_root, "data_templates", "master_risks_assumptions_template.csv")
+)
+split_assumptions_locked_risk <- function(df) {
+  is_risk <- tolower(trimws(df$type)) == "risk"
+  list(locked = df[!is_risk, , drop = FALSE], risk = df[is_risk, , drop = FALSE])
+}
+default_assumptions_split <- split_assumptions_locked_risk(default_assumptions_df)
 
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
@@ -160,7 +175,10 @@ ui <- page_sidebar(
         helpText(class = "text-muted small mt-0",
           "If omitted, synthetic baseline data is used (clearly flagged). ",
           "Recommended: 20+ historical wells for calibrated estimates."),
-        fileInput("assumption_file", "master_risks_assumptions.csv", accept = ".csv"),
+        fileInput("assumption_file", "master_risks_assumptions.csv (optional)", accept = ".csv"),
+        helpText(class = "text-muted small mt-0",
+          "If omitted, the bundled template is used. Risk rows can be edited directly ",
+          "in the Risk Editor tab without uploading a file at all."),
         fileInput("risk_library_file", "risk_consequence_library.csv (optional)", accept = ".csv"),
         downloadButton("download_risk_library_template", "Download template", class = "btn-sm w-100 mb-2"),
         helpText(class = "text-muted small mt-0",
@@ -938,6 +956,29 @@ ui <- page_sidebar(
 
 
     nav_panel(
+      "Risk Editor",
+      card(
+        card_header("Edit risk rows directly — no CSV required"),
+        p(class = "text-muted small",
+          "Technical / Resource / External risk rows from master_risks_assumptions.csv, ",
+          "editable as a spreadsheet. Right-click a row to insert/remove rows. ",
+          "Campaign Setup and Base Operation rows (locked-name, looked up by exact ",
+          "name by the engine) are not edited here — they still come from the uploaded ",
+          "file, or the bundled template if none is uploaded."),
+        layout_columns(
+          col_widths = c(8, 4),
+          div(),
+          div(class = "text-end",
+            actionButton("reset_risk_rows", "Reset to template defaults", class = "btn-sm btn-outline-secondary me-2"),
+            downloadButton("download_risk_rows", "Download as CSV", class = "btn-sm")
+          )
+        ),
+        rHandsontableOutput("risk_rows_hot"),
+        uiOutput("risk_rows_status")
+      )
+    ),
+
+    nav_panel(
       "Audit & Data",
       plot_card("Input fidelity check", "validation_plot", "420px"),
       table_card("Executive KPIs", dt_wrap("executive_kpi_table", "280px")),
@@ -976,8 +1017,71 @@ server <- function(input, output, session) {
     }
   )
 
+  # --- Risk Editor (master_risks_assumptions.csv risk rows) -----------------
+  # Locked-name rows (Campaign Setup / Base Operation) are not edited in the
+  # grid -- they come from the uploaded file if present, else the bundled
+  # template -- and are tracked separately from the user-editable risk rows.
+  locked_rows_rv <- reactiveVal(default_assumptions_split$locked)
+  risk_rows_seed_rv <- reactiveVal(default_assumptions_split$risk)
+
+  observeEvent(input$assumption_file, {
+    split <- tryCatch(
+      split_assumptions_locked_risk(load_master_assumptions(input$assumption_file$datapath)),
+      error = function(e) NULL
+    )
+    if (!is.null(split)) {
+      locked_rows_rv(split$locked)
+      risk_rows_seed_rv(split$risk)
+    }
+  })
+
+  observeEvent(input$reset_risk_rows, {
+    locked_rows_rv(default_assumptions_split$locked)
+    risk_rows_seed_rv(default_assumptions_split$risk)
+  })
+
+  output$risk_rows_hot <- renderRHandsontable({
+    df <- risk_rows_seed_rv()
+    rhandsontable(df, useTypes = TRUE, stretchH = "all", contextMenu = TRUE) %>%
+      hot_col("category", type = "dropdown",
+              source = c("Technical Risk", "Resource Risk", "External Risk")) %>%
+      hot_col("variable", type = "text") %>%
+      hot_col("type", readOnly = TRUE) %>%
+      hot_col("probability", type = "numeric", format = "0.00") %>%
+      hot_col("min_days", type = "numeric", format = "0.00") %>%
+      hot_col("most_likely_days", type = "numeric", format = "0.00") %>%
+      hot_col("max_days", type = "numeric", format = "0.00") %>%
+      hot_col("simulation_impact", type = "text") %>%
+      hot_col("scope", type = "dropdown", source = c("stage", "well", "campaign"))
+  })
+
+  # Current risk rows as edited in the grid, falling back to the seed before
+  # the widget has rendered (e.g. on a different tab during initial load).
+  current_risk_rows <- reactive({
+    if (!is.null(input$risk_rows_hot)) hot_to_r(input$risk_rows_hot) else risk_rows_seed_rv()
+  })
+
+  output$risk_rows_status <- renderUI({
+    res <- tryCatch(
+      list(ok = TRUE, df = validate_assumptions(bind_rows(locked_rows_rv(), current_risk_rows()))),
+      error = function(e) list(ok = FALSE, error = conditionMessage(e))
+    )
+    if (isTRUE(res$ok)) {
+      n_risk <- nrow(current_risk_rows())
+      tags$p(class = "small text-success mt-2 mb-0", sprintf("✓ %d risk row(s) — valid.", n_risk))
+    } else {
+      tags$pre(class = "small text-danger mt-2 mb-0", res$error)
+    }
+  })
+
+  output$download_risk_rows <- downloadHandler(
+    filename = function() "risk_rows.csv",
+    content = function(file) {
+      write.csv(current_risk_rows(), file, row.names = FALSE)
+    }
+  )
+
   input_data <- reactive({
-    req(input$assumption_file)
     tryCatch({
       # Historical file is optional: fall back to synthetic data if not supplied
       using_synthetic <- is.null(input$historical_file)
@@ -998,7 +1102,7 @@ server <- function(input, output, session) {
       risk_library <- read.csv(risk_library_path, stringsAsFactors = FALSE) %>%
         validate_risk_consequence_library()
 
-      assumptions <- load_master_assumptions(input$assumption_file$datapath) %>%
+      assumptions <- bind_rows(locked_rows_rv(), current_risk_rows()) %>%
         validate_assumptions()
       input_warnings <- c(
         attr(historical, "input_warnings") %||% character(0),
@@ -1015,10 +1119,6 @@ server <- function(input, output, session) {
   })
 
   output$status_message <- renderUI({
-    if (is.null(input$assumption_file)) {
-      return(tags$small(class = "text-muted",
-        "Upload master_risks_assumptions.csv to begin. Historical file is optional."))
-    }
     dat <- input_data()
     if (!isTRUE(dat$ok)) {
       return(tags$div(
@@ -1078,7 +1178,6 @@ server <- function(input, output, session) {
       return(invisible())
     }
 
-    req(input$assumption_file)
     dat <- input_data()
     validate(need(isTRUE(dat$ok), paste("Fix input files first:", dat$error)))
 
