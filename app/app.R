@@ -958,6 +958,15 @@ ui <- page_sidebar(
     nav_panel(
       "Risk Editor",
       card(
+        card_header("Parameters (read-only)"),
+        p(class = "text-muted small",
+          "Campaign Setup and Base Operation rows — locked-name, looked up by exact ",
+          "name by the engine, so they are not editable here. Currently sourced from ",
+          "the uploaded master_risks_assumptions.csv, or the bundled template if none ",
+          "is uploaded."),
+        rHandsontableOutput("params_table_hot")
+      ),
+      card(
         card_header("Edit risk rows directly — no CSV required"),
         p(class = "text-muted small",
           "Technical / Resource / External risk rows from master_risks_assumptions.csv, ",
@@ -1059,6 +1068,11 @@ server <- function(input, output, session) {
       }
     }
   ")
+
+  output$params_table_hot <- renderRHandsontable({
+    rhandsontable(locked_rows_rv(), useTypes = TRUE, stretchH = "all",
+                  contextMenu = FALSE, readOnly = TRUE)
+  })
 
   output$risk_rows_hot <- renderRHandsontable({
     df <- risk_rows_seed_rv()
