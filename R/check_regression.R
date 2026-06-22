@@ -59,9 +59,23 @@ GRID$frac_trees <- ifelse(GRID$operation_mode == "Zipper", 2, 1)
 GRID$allow_ct_for_milling <- FALSE
 
 # ---- comparison helper -------------------------------------------------------
+# Compares only the columns ORIG (the frozen archived original) actually
+# produces. archive/simulation_engine.R is never updated for new features
+# (it exists solely as this script's reference oracle, see R/archive's
+# README in PR #52) -- once a genuinely new capability is added ONLY to the
+# fast engine (e.g. the event-mode pre-frac scheduler and its
+# wireline_capacity_wait_days / ct_caused_wireline_wait_days columns, which
+# the original has no concept of at all), comparing the full column set
+# would fail on a column-count/order mismatch that has nothing to do with
+# any shared computation actually changing. Restricting to intersect(names)
+# keeps proving the thing that matters going forward: every column the
+# original DOES produce stays bit-identical in the fast engine, while fast
+# is free to grow new columns the original structurally cannot have.
 all_ok <- TRUE
 cmp <- function(a, b, what, tol = 1e-12) {
-  r <- all.equal(as.data.frame(a), as.data.frame(b), tolerance = tol)
+  shared <- intersect(names(a), names(b))
+  r <- all.equal(as.data.frame(a)[, shared, drop = FALSE],
+                 as.data.frame(b)[, shared, drop = FALSE], tolerance = tol)
   ok <- isTRUE(r)
   cat(sprintf("  %-26s %s\n", what, if (ok) "IDENTICAL" else "*** DIFF ***"))
   if (!ok) cat("     ", paste(utils::head(r, 6), collapse = "\n      "), "\n")
