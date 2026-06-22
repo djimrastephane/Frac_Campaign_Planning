@@ -155,5 +155,59 @@ chk(waits[1] > 0,
 chk(waits[1] < 5,
     "the residual is small relative to campaign scale, consistent with a one-time transient, not systemic undersizing")
 
+# -- 11. Attribution split (wireline_capacity_wait_days vs ct_caused_wait_days):
+# a slow CT unit can push wireline's own finish time later without wireline
+# itself being undersized. Found by direct investigation: with ct_units=1 and
+# ample wireline_units, the dashboard's single "waiting on wireline" figure
+# was ~99% caused by CT, not wireline capacity at all -- a real attribution
+# bug, not a math bug (the total was correct; it was blamed on the wrong
+# resource). These two components must (a) sum exactly to the existing total
+# at every well, and (b) respond to the resource that actually causes them:
+# adding CT units should collapse ct_caused_wait_days while leaving
+# wireline_capacity_wait_days roughly unchanged.
+r10 <- schedule_pre_frac(
+  well_order_index = 1:5,
+  ct_workload_days = rep(6, 5), wireline_workload_days = rep(1, 5), frac_workload_days = rep(1, 5),
+  ct_units = 1, wireline_units = 5, frac_fleets = 5
+)
+chk(all(abs(r10$well_schedule$wireline_capacity_wait_days + r10$well_schedule$ct_caused_wait_days -
+            r10$well_schedule$wireline_wait_days) < 1e-9),
+    "wireline_capacity_wait_days + ct_caused_wait_days == wireline_wait_days exactly, every well")
+chk(abs(r10$total_wireline_capacity_wait_days + r10$total_ct_caused_wait_days -
+        r10$total_wireline_readiness_delay_days) < 1e-9,
+    "the two totals sum exactly to total_wireline_readiness_delay_days")
+chk(sum(r10$well_schedule$wireline_capacity_wait_days) < 1e-9,
+    "with ample wireline (5 units, 1-day workload each) and a slow single CT unit, wireline's OWN capacity contributes ~0 wait")
+chk(r10$total_ct_caused_wait_days > 0,
+    "the wait that exists is correctly attributed to CT, not wireline capacity")
+
+# Adding CT units should shrink ct_caused_wait_days monotonically, then
+# PLATEAU once ct_units >= n_wells (every well gets a dedicated unit, zero
+# queueing left to remove). It must NOT necessarily hit ~0 at that point --
+# here ct_workload_days (6) exceeds wireline+frac's own pace (1+1=2), so
+# CT's precedence over wireline (it must finish before wireline starts, for
+# every well, real units or not) leaves an inherent per-well floor that more
+# CT UNITS cannot remove -- only a shorter CT task could. Conflating that
+# floor with queueing-driven delay (which #54's real-data investigation
+# showed CAN collapse toward ~0 when CT's own duration is modest) would be
+# exactly the kind of unjustified "just add more CT units" advice this
+# attribution split exists to avoid giving.
+ct_caused_by_units <- sapply(c(1, 2, 4, 8, 10, 20), function(ctu) {
+  schedule_pre_frac(
+    well_order_index = 1:10, ct_workload_days = rep(6, 10),
+    wireline_workload_days = rep(1, 10), frac_workload_days = rep(1, 10),
+    ct_units = ctu, wireline_units = 10, frac_fleets = 10
+  )$total_ct_caused_wait_days
+})
+chk(all(diff(ct_caused_by_units) <= 1e-9),
+    sprintf("ct_caused_wait_days is non-increasing as ct_units grows 1->2->4->8->10->20 (got %s)",
+            paste(round(ct_caused_by_units, 2), collapse = ", ")))
+chk(ct_caused_by_units[5] < ct_caused_by_units[1],
+    "ct_caused_wait_days does shrink substantially from 1 unit (heavy queueing) to 10 units (one per well)")
+chk(ct_caused_by_units[5] == ct_caused_by_units[6],
+    "ct_caused_wait_days plateaus once ct_units >= n_wells (10 == 20): no more queueing left to remove")
+chk(ct_caused_by_units[5] > 0,
+    "the plateau is correctly nonzero -- CT's own per-well duration (6) exceeds wireline+frac's pace (1+1), a real duration floor, not a bug")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

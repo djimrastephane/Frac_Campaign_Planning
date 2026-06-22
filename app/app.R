@@ -2784,6 +2784,17 @@ server <- function(input, output, session) {
 
     idle_days <- mean(sim_results()$summary$total_wireline_readiness_delay_days, na.rm = TRUE)
 
+    # Attribution split (event mode only -- see schedule_pre_frac() in
+    # simulation_engine_fast.R): how much of the idle-days figure above is
+    # genuinely wireline capacity vs CT gating wireline's start. Without
+    # this, a slow CT unit shows up entirely as "waiting on wireline" even
+    # when wireline itself has ample units -- mean(..., na.rm=TRUE) on the
+    # formula path's all-NA column returns NaN, which is how has_attribution
+    # detects that the split isn't available for this run.
+    ct_caused_days <- mean(sim_results()$summary$total_ct_caused_wireline_wait_days, na.rm = TRUE)
+    wireline_capacity_days <- mean(sim_results()$summary$total_wireline_capacity_wait_days, na.rm = TRUE)
+    has_attribution <- !is.nan(ct_caused_days) && !is.nan(wireline_capacity_days)
+
     list(
       best = best$operation_mode,
       p50 = fmt_days_short(best$p50_days),
@@ -2794,13 +2805,17 @@ server <- function(input, output, session) {
       readiness_status = if (nrow(rd) == 0) "" else rd$readiness_status,
       readiness_drivers = drivers,
       bottleneck = if (nrow(bn) == 0) "N/A" else paste(bn$operation_mode, bn$resource, sep = " \u2013 "),
+      bottleneck_resource = if (nrow(bn) == 0) NA_character_ else bn$resource,
       bottleneck_type = if (nrow(bn) == 0) "post_frac" else {
         if (grepl("Milling|Testing", bn$resource)) "post_frac" else "frac_phase"
       },
       # Frac-phase constraint: wireline slower than frac fleet in zipper
       frac_phase_constrained = idle_days > 2,
       idle_days = idle_days,
-      idle_cost = fmt_money_short(idle_days * input$frac_fleet_cost)
+      idle_cost = fmt_money_short(idle_days * input$frac_fleet_cost),
+      has_attribution = has_attribution,
+      ct_caused_days = ct_caused_days,
+      wireline_capacity_days = wireline_capacity_days
     )
   })
 
@@ -2836,11 +2851,16 @@ server <- function(input, output, session) {
       tags$small(class = "text-muted", "Limits campaign end date")
     else
       tags$small(class = "text-muted", "Limits frac fleet utilization")
-    # Also flag wireline constraint if it exists alongside a post-frac bottleneck
-    wl_note <- if (d$bottleneck_type == "post_frac" && d$frac_phase_constrained)
+    # Also flag a frac-phase idle cost alongside a post-frac bottleneck --
+    # name whichever resource the attribution split says actually causes
+    # it (CT or wireline), rather than always blaming wireline (see
+    # vb_idle_context for why that assumption is wrong when CT gates
+    # wireline's start).
+    wl_note <- if (d$bottleneck_type == "post_frac" && d$frac_phase_constrained) {
+      cause <- if (isTRUE(d$has_attribution) && d$ct_caused_days > d$wireline_capacity_days) "CT" else "wireline"
       tags$small(class = "text-warning d-block mt-1",
-        sprintf("Also: wireline slower than frac fleet — %.1f d idle cost exists", d$idle_days))
-    else NULL
+        sprintf("Also: %s slower than frac fleet — %.1f d idle cost exists", cause, d$idle_days))
+    } else NULL
     tagList(scope_txt, wl_note)
   })
 
@@ -2849,14 +2869,35 @@ server <- function(input, output, session) {
     if (d$idle_days < 0.5) {
       return(tags$small(class = "text-muted", "No significant frac fleet waiting time"))
     }
-    # Clarify that idle cost and campaign bottleneck are different problems
-    scope <- if (d$bottleneck_type == "post_frac")
+    # Clarify that idle cost and campaign bottleneck are different problems.
+    # bottleneck_type == "frac_phase" only tells us the bottleneck isn't
+    # milling/testing -- it could be wireline, CT, or the frac fleet itself,
+    # so check the actual resource rather than assuming wireline (the
+    # original wording here always said "Wireline is also the campaign
+    # bottleneck" for ANY frac_phase bottleneck, which was wrong whenever
+    # CT or the frac fleet was the real constraint).
+    scope <- if (d$bottleneck_type == "post_frac") {
       "This is separate from the campaign bottleneck — frac fleet waits on wireline during pumping operations."
-    else
+    } else if (isTRUE(grepl("Wireline", d$bottleneck_resource))) {
       "Wireline is also the campaign bottleneck."
+    } else {
+      sprintf("This is separate from the campaign bottleneck — %s is the actual constraint there.",
+              d$bottleneck_resource)
+    }
+    # Attribution: a slow CT unit can push wireline's own finish time later
+    # without wireline itself being undersized -- don't let a user read this
+    # idle-days figure as "add wireline capacity" when the fix is actually
+    # "add CT capacity". Only shown when the split is available (event mode)
+    # and the CT-caused share is large enough to matter.
+    attribution <- if (isTRUE(d$has_attribution) && d$ct_caused_days > 0.5) {
+      tags$small(class = "text-warning d-block mt-1",
+        sprintf("Of this, %.1f d is CT gating wireline's start (add CT capacity) — %.1f d is wireline's own capacity.",
+                d$ct_caused_days, d$wireline_capacity_days))
+    } else NULL
     tagList(
       tags$small(sprintf("%.1f mean idle days waiting on wireline. ", d$idle_days)),
-      tags$small(class = "text-muted d-block", scope)
+      tags$small(class = "text-muted d-block", scope),
+      attribution
     )
   })
 
