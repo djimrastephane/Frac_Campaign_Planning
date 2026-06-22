@@ -316,8 +316,8 @@ ui <- page_sidebar(
         numericInput("seed", "Simulation seed", value = 123, min = 1, max = 999999, step = 1),
         sliderInput("risk_multiplier", "Risk frequency multiplier", min = 0.25, max = 3, value = 1, step = 0.25),
         helpText("Scales how often risk events occur. It does not change consequence severity once a risk occurs."),
-        numericInput("target_days", "Target duration (days, optional)", value = NA, min = 1, step = 1),
-        numericInput("budget", "Budget ceiling ($, optional)", value = NA, min = 0, step = 1000000)
+        numericInput("target_days", "Target duration (days, optional)", value = NULL, min = 1, step = 1),
+        numericInput("budget", "Budget ceiling ($, optional)", value = NULL, min = 0, step = 1000000)
       ),
       accordion_panel(
         "Resources",
@@ -743,10 +743,10 @@ ui <- page_sidebar(
             textInput("wif_v1_label", "Label", placeholder = "e.g. +1 Frac fleet"),
             selectInput("wif_v1_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
-            numericInput("wif_v1_frac",  "Frac fleets", value = NA, min = 1, max = 5),
-            numericInput("wif_v1_wl",    "Wireline units", value = NA, min = 1, max = 5),
-            numericInput("wif_v1_ct",    "CT units", value = NA, min = 1, max = 5),
-            numericInput("wif_v1_ml",    "Milling units", value = NA, min = 1, max = 5)
+            numericInput("wif_v1_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
+            numericInput("wif_v1_wl",    "Wireline units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v1_ct",    "CT units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v1_ml",    "Milling units", value = NULL, min = 1, max = 5)
           ),
 
           # Variant 2
@@ -756,10 +756,10 @@ ui <- page_sidebar(
             textInput("wif_v2_label", "Label", placeholder = "e.g. Zipper mode"),
             selectInput("wif_v2_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
-            numericInput("wif_v2_frac",  "Frac fleets", value = NA, min = 1, max = 5),
-            numericInput("wif_v2_wl",    "Wireline units", value = NA, min = 1, max = 5),
-            numericInput("wif_v2_ct",    "CT units", value = NA, min = 1, max = 5),
-            numericInput("wif_v2_ml",    "Milling units", value = NA, min = 1, max = 5)
+            numericInput("wif_v2_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
+            numericInput("wif_v2_wl",    "Wireline units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v2_ct",    "CT units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v2_ml",    "Milling units", value = NULL, min = 1, max = 5)
           ),
 
           # Variant 3
@@ -769,10 +769,10 @@ ui <- page_sidebar(
             textInput("wif_v3_label", "Label", placeholder = "e.g. +1 WL +1 FF"),
             selectInput("wif_v3_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
-            numericInput("wif_v3_frac",  "Frac fleets", value = NA, min = 1, max = 5),
-            numericInput("wif_v3_wl",    "Wireline units", value = NA, min = 1, max = 5),
-            numericInput("wif_v3_ct",    "CT units", value = NA, min = 1, max = 5),
-            numericInput("wif_v3_ml",    "Milling units", value = NA, min = 1, max = 5)
+            numericInput("wif_v3_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
+            numericInput("wif_v3_wl",    "Wireline units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v3_ct",    "CT units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v3_ml",    "Milling units", value = NULL, min = 1, max = 5)
           ),
 
           tags$hr(),
