@@ -891,7 +891,7 @@ ui <- page_sidebar(
         layout_columns(
           col_widths = c(3, 9),
           numericInput("cascade_max_steps", "Max steps", value = 6, min = 2, max = 10, step = 1),
-          helpText("Each step trials up to 2 candidate resources (300 iterations each) and keeps whichever saves more days. 6 steps ≈ 2-4 min.")
+          helpText("Each step trials every eligible resource (300 iterations each, up to 3) and keeps whichever measurably saves the most days. 6 steps ≈ 3-5 min.")
         ),
         actionButton("run_cascade", "Run constraint cascade",
                      class = "btn-warning btn-lg w-100", icon = icon("arrow-right"))

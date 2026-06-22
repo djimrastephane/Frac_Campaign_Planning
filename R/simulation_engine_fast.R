@@ -3869,12 +3869,13 @@ analyse_constraint_cascade <- function(
       filter(resource %in% eligible) %>%
       arrange(desc(p90_utilization))
     bottleneck_resource <- ranked_eligible$resource[1]
-    # Utilization is only a heuristic shortlist: within the binding side, it
-    # can still mis-rank a resource that's actually gated by a shared
-    # dependency (e.g. milling needs a free testing unit too, so testing can
-    # be the true limiter even when milling's own utilization reads higher).
-    # Keep the top 2 candidates so the caller can test both empirically.
-    candidates <- head(ranked_eligible$resource, 2)
+    # Utilization is supporting evidence only, not the gate: it can mis-rank a
+    # resource that's actually gated by a shared dependency (e.g. milling
+    # needs a free testing unit too, so testing can be the true limiter even
+    # when milling's own utilization reads higher). The caller trials every
+    # eligible candidate and decides by measured saving instead; utilization
+    # is only used there to break near-ties.
+    candidates <- ranked_eligible$resource
 
     list(
       p50   = as.numeric(quantile(sm$estimated_campaign_days, 0.5, na.rm = TRUE)),
@@ -3923,9 +3924,10 @@ analyse_constraint_cascade <- function(
     candidates <- candidates[!is.na(candidates) & candidates %in% names(resource_to_arg)]
     if (length(candidates) == 0) break
 
-    # Trial each shortlisted candidate (+1 unit) and keep whichever produces
-    # the largest measured schedule saving, rather than trusting utilization
-    # ranking alone (see score() above for why that can pick the wrong lever).
+    # Trial EVERY eligible candidate (+1 unit) and measure its real schedule
+    # saving -- utilization is supporting evidence only (used below to break
+    # near-ties), never a gate on which candidates get trialled. See score()
+    # above for why utilization alone can mis-rank the true limiter.
     trials <- lapply(candidates, function(cand) {
       arg_name <- resource_to_arg[cand]
       trial_cfg <- cfg
@@ -3935,9 +3937,52 @@ analyse_constraint_cascade <- function(
       s_trial <- score(r_trial, trial_cfg)
       list(resource = cand, cfg = trial_cfg, units_before = units_before,
            units_after = units_before + 1L, score = s_trial,
-           saving = prev_p50 - s_trial$p50)
+           saving = prev_p50 - s_trial$p50,
+           prior_utilization = unname(prev_score$utilization[cand]))
     })
-    best <- trials[[which.max(vapply(trials, function(x) x$saving, numeric(1)))]]
+    savings <- vapply(trials, function(x) x$saving, numeric(1))
+    best_saving <- max(savings)
+
+    # No eligible resource materially shortens the campaign: stop instead of
+    # picking an essentially-arbitrary "winner" among noise-level savings.
+    no_bottleneck_threshold <- max(min_saving_days, 0.01 * prev_p50)
+    if (best_saving < no_bottleneck_threshold) {
+      steps[[step + 1]] <- tibble(
+        step                = as.integer(step),
+        action              = "No further resource materially shortens the campaign",
+        resource_fixed      = NA_character_,
+        units_before        = NA_integer_,
+        units_after         = NA_integer_,
+        p50_days            = prev_p50,
+        p10_days            = prev_score$p10,
+        p90_days            = prev_score$p90,
+        days_saved          = best_saving,
+        daily_rate          = NA_real_,
+        incremental_cost    = NA_real_,
+        schedule_value      = NA_real_,
+        cost_per_day_saved  = NA_real_,
+        roi_days_per_Mdollar= NA_real_,
+        bottleneck_now      = prev_score$bottleneck,
+        bottleneck_util_pct = round(prev_score$bottleneck_util * 100, 1),
+        verdict             = sprintf(
+          "No material bottleneck — best option saves only %.1f days (< %.1f day / 1%% threshold)",
+          best_saving, min_saving_days)
+      )
+      if (!is.null(progress_callback)) progress_callback(step, max_steps)
+      break
+    }
+
+    # Tie-break candidates within 0.5 days of the best measured saving by
+    # PRIOR utilization (supporting evidence, not the primary signal) -- this
+    # only matters when two candidates are genuinely close; it never
+    # overrides a materially larger saving elsewhere.
+    near_best <- which(savings >= best_saving - 0.5)
+    best <- if (length(near_best) > 1) {
+      utils <- vapply(trials[near_best], function(x) x$prior_utilization %||% -Inf, numeric(1))
+      trials[[near_best[which.max(utils)]]]
+    } else {
+      trials[[near_best[1]]]
+    }
 
     bn           <- best$resource
     units_before <- best$units_before
