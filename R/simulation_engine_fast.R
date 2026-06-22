@@ -3851,10 +3851,30 @@ analyse_constraint_cascade <- function(
       "Milling"       = cfg$milling_units %||% 1,
       "Testing unit"  = cfg$testing_units %||% 1
     )
-    bottleneck_resource <- ru %>%
-      arrange(desc(p90_utilization)) %>%
-      slice(1) %>%
-      pull(resource)
+    # estimated_campaign_days = max(frac-path days, post-frac completion days).
+    # Raw utilization isn't a reliable signal of which resource is binding:
+    # Milling/Testing can show high utilization while sitting well inside the
+    # post-frac window, with zero effect on campaign length, when the frac
+    # path is actually the side of the max() that's binding (and vice versa).
+    # Restrict candidates to whichever side dominates across iterations so the
+    # cascade doesn't chase a resource that can't move the schedule.
+    frac_path_binds <- mean(sm$post_frac_completion_days < sm$estimated_campaign_days, na.rm = TRUE) > 0.5
+    eligible <- if (frac_path_binds) {
+      c("Frac fleet", "Wireline", "CT / cleanout")
+    } else {
+      c("Milling", "Testing unit", "CT / cleanout")
+    }
+
+    ranked_eligible <- ru %>%
+      filter(resource %in% eligible) %>%
+      arrange(desc(p90_utilization))
+    bottleneck_resource <- ranked_eligible$resource[1]
+    # Utilization is only a heuristic shortlist: within the binding side, it
+    # can still mis-rank a resource that's actually gated by a shared
+    # dependency (e.g. milling needs a free testing unit too, so testing can
+    # be the true limiter even when milling's own utilization reads higher).
+    # Keep the top 2 candidates so the caller can test both empirically.
+    candidates <- head(ranked_eligible$resource, 2)
 
     list(
       p50   = as.numeric(quantile(sm$estimated_campaign_days, 0.5, na.rm = TRUE)),
@@ -3862,6 +3882,7 @@ analyse_constraint_cascade <- function(
       p10   = as.numeric(quantile(sm$estimated_campaign_days, 0.1, na.rm = TRUE)),
       utilization = setNames(ru$p90_utilization, ru$resource),
       bottleneck  = bottleneck_resource,
+      candidates  = candidates,
       bottleneck_util = ru$p90_utilization[ru$resource == bottleneck_resource][1],
       resource_units = units_map
     )
@@ -3898,16 +3919,31 @@ analyse_constraint_cascade <- function(
   prev_score   <- s0
 
   for (step in seq_len(max_steps)) {
-    bn <- prev_score$bottleneck
-    if (is.na(bn) || !bn %in% names(resource_to_arg)) break
+    candidates <- prev_score$candidates
+    candidates <- candidates[!is.na(candidates) & candidates %in% names(resource_to_arg)]
+    if (length(candidates) == 0) break
 
-    arg_name <- resource_to_arg[bn]
-    units_before <- as.integer(cfg[[arg_name]] %||% 1)
-    units_after  <- units_before + 1L
-    cfg[[arg_name]] <- units_after
+    # Trial each shortlisted candidate (+1 unit) and keep whichever produces
+    # the largest measured schedule saving, rather than trusting utilization
+    # ranking alone (see score() above for why that can pick the wrong lever).
+    trials <- lapply(candidates, function(cand) {
+      arg_name <- resource_to_arg[cand]
+      trial_cfg <- cfg
+      units_before <- as.integer(cfg[[arg_name]] %||% 1)
+      trial_cfg[[arg_name]] <- units_before + 1L
+      r_trial <- run_sim(trial_cfg)
+      s_trial <- score(r_trial, trial_cfg)
+      list(resource = cand, cfg = trial_cfg, units_before = units_before,
+           units_after = units_before + 1L, score = s_trial,
+           saving = prev_p50 - s_trial$p50)
+    })
+    best <- trials[[which.max(vapply(trials, function(x) x$saving, numeric(1)))]]
 
-    r_new <- run_sim(cfg)
-    s_new <- score(r_new, cfg)
+    bn           <- best$resource
+    units_before <- best$units_before
+    units_after  <- best$units_after
+    cfg          <- best$cfg
+    s_new        <- best$score
 
     daily_rate <- resource_costs[bn] %||% 0
     saving     <- prev_p50 - s_new$p50
