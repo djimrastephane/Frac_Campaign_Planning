@@ -2794,6 +2794,15 @@ server <- function(input, output, session) {
     ct_caused_days <- mean(sim_results()$summary$total_ct_caused_wireline_wait_days, na.rm = TRUE)
     wireline_capacity_days <- mean(sim_results()$summary$total_wireline_capacity_wait_days, na.rm = TRUE)
     has_attribution <- !is.nan(ct_caused_days) && !is.nan(wireline_capacity_days)
+    # Second-level split of ct_caused_days: queueing (removable by adding CT
+    # units) vs duration_floor (CT's own per-well task simply takes longer
+    # than wireline+frac's pace -- NOT removable by adding units, only by a
+    # shorter CT task). Found by direct investigation: a synthetic check with
+    # CT units raised to match n_wells (zero queueing left to remove) still
+    # left a flat, nonzero residual -- telling a user to "add CT capacity"
+    # without this split would overstate what more units can actually fix.
+    ct_queueing_days <- mean(sim_results()$summary$total_ct_queueing_wireline_wait_days, na.rm = TRUE)
+    ct_duration_floor_days <- mean(sim_results()$summary$total_ct_duration_floor_wireline_wait_days, na.rm = TRUE)
 
     list(
       best = best$operation_mode,
@@ -2815,7 +2824,9 @@ server <- function(input, output, session) {
       idle_cost = fmt_money_short(idle_days * input$frac_fleet_cost),
       has_attribution = has_attribution,
       ct_caused_days = ct_caused_days,
-      wireline_capacity_days = wireline_capacity_days
+      wireline_capacity_days = wireline_capacity_days,
+      ct_queueing_days = ct_queueing_days,
+      ct_duration_floor_days = ct_duration_floor_days
     )
   })
 
@@ -2889,10 +2900,26 @@ server <- function(input, output, session) {
     # idle-days figure as "add wireline capacity" when the fix is actually
     # "add CT capacity". Only shown when the split is available (event mode)
     # and the CT-caused share is large enough to matter.
+    #
+    # Within the CT-caused share, distinguish queueing (genuinely fixed by
+    # adding CT units) from a duration floor (CT's own per-well task simply
+    # takes longer than wireline+frac's pace -- adding units does NOT fix
+    # this, only a shorter CT task does). Found by direct investigation:
+    # raising CT units all the way to one-per-well still left a flat,
+    # nonzero residual -- telling a user to "add CT capacity" without this
+    # split overstates what more units can actually achieve.
     attribution <- if (isTRUE(d$has_attribution) && d$ct_caused_days > 0.5) {
+      ct_detail <- if (d$ct_queueing_days > 0.5 && d$ct_duration_floor_days > 0.5) {
+        sprintf("of which %.1f d is queueing (add CT capacity) and %.1f d is CT's own task duration (shortening the CT task is the only fix)",
+                d$ct_queueing_days, d$ct_duration_floor_days)
+      } else if (d$ct_duration_floor_days > 0.5) {
+        "all of it CT's own task duration exceeding wireline+frac's pace -- adding CT units will NOT fix this, only a shorter CT task will"
+      } else {
+        "essentially all of it CT queueing -- add CT capacity"
+      }
       tags$small(class = "text-warning d-block mt-1",
-        sprintf("Of this, %.1f d is CT gating wireline's start (add CT capacity) — %.1f d is wireline's own capacity.",
-                d$ct_caused_days, d$wireline_capacity_days))
+        sprintf("Of this, %.1f d is CT gating wireline's start (%s) — %.1f d is wireline's own capacity.",
+                d$ct_caused_days, ct_detail, d$wireline_capacity_days))
     } else NULL
     tagList(
       tags$small(sprintf("%.1f mean idle days waiting on wireline. ", d$idle_days)),

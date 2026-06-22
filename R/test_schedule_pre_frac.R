@@ -209,5 +209,50 @@ chk(ct_caused_by_units[5] == ct_caused_by_units[6],
 chk(ct_caused_by_units[5] > 0,
     "the plateau is correctly nonzero -- CT's own per-well duration (6) exceeds wireline+frac's pace (1+1), a real duration floor, not a bug")
 
+# -- 12. Second-level split: ct_caused_wait_days = ct_queueing_wait_days +
+# ct_duration_floor_wait_days. Distinguishes delay removable by adding CT
+# units (queueing) from a floor that survives even with a dedicated CT unit
+# per well (CT's own task takes longer than wireline+frac's pace). Without
+# this, "add CT capacity" advice would overstate what more units can fix --
+# the plateau in test 11 above (60 at ct_units=10/20) should now resolve to
+# ALL duration_floor and ZERO queueing once units stop being scarce.
+floors_and_queues <- lapply(c(1, 2, 4, 8, 10, 20), function(ctu) {
+  schedule_pre_frac(
+    well_order_index = 1:10, ct_workload_days = rep(6, 10),
+    wireline_workload_days = rep(1, 10), frac_workload_days = rep(1, 10),
+    ct_units = ctu, wireline_units = 10, frac_fleets = 10
+  )
+})
+chk(all(sapply(floors_and_queues, function(r)
+  abs(r$total_ct_queueing_wait_days + r$total_ct_duration_floor_wait_days - r$total_ct_caused_wait_days) < 1e-9)),
+    "ct_queueing_wait_days + ct_duration_floor_wait_days == ct_caused_wait_days exactly, every ct_units value")
+chk(all(sapply(floors_and_queues, function(r) all(abs(
+  r$well_schedule$ct_queueing_wait_days + r$well_schedule$ct_duration_floor_wait_days -
+  r$well_schedule$ct_caused_wait_days) < 1e-9))),
+    "the same identity holds at every individual well, not just in aggregate")
+duration_floors <- sapply(floors_and_queues, `[[`, "total_ct_duration_floor_wait_days")
+chk(length(unique(round(duration_floors, 6))) == 1,
+    sprintf("ct_duration_floor_wait_days is IDENTICAL regardless of ct_units (got %s) -- it's a floor, not a queueing effect",
+            paste(round(duration_floors, 2), collapse = ", ")))
+queueing_at_plateau <- floors_and_queues[[5]]$total_ct_queueing_wait_days  # ct_units = 10 = n_wells
+chk(abs(queueing_at_plateau) < 1e-9,
+    "ct_queueing_wait_days is exactly 0 once ct_units == n_wells (no queueing left to remove)")
+chk(floors_and_queues[[1]]$total_ct_queueing_wait_days > floors_and_queues[[1]]$total_ct_duration_floor_wait_days,
+    "at ct_units=1 (heavy contention), queueing dominates the total -- this is the regime adding CT units actually fixes")
+
+# -- 13. Pure duration-floor case (no queueing at all, ct_units already
+# ample): ct_queueing_wait_days must be exactly 0 and ct_duration_floor_wait_days
+# must equal ct_caused_wait_days exactly -- confirms the split correctly
+# attributes 100% to the floor when there is genuinely no queueing to find.
+r11 <- schedule_pre_frac(
+  well_order_index = 1:3, ct_workload_days = rep(5, 3),
+  wireline_workload_days = rep(1, 3), frac_workload_days = rep(1, 3),
+  ct_units = 3, wireline_units = 3, frac_fleets = 3
+)
+chk(abs(r11$total_ct_queueing_wait_days) < 1e-9,
+    "one dedicated CT unit per well: zero queueing wait, even though CT's own duration (5) exceeds wireline+frac's pace (1+1)")
+chk(abs(r11$total_ct_duration_floor_wait_days - r11$total_ct_caused_wait_days) < 1e-9,
+    "with zero queueing, the entire ct_caused_wait_days is correctly attributed to the duration floor")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

@@ -779,7 +779,9 @@ schedule_pre_frac <- function(well_order_index,
       total_frac_busy_days = 0,
       total_wireline_readiness_delay_days = 0,
       total_wireline_capacity_wait_days = 0,
-      total_ct_caused_wait_days = 0
+      total_ct_caused_wait_days = 0,
+      total_ct_queueing_wait_days = 0,
+      total_ct_duration_floor_wait_days = 0
     ))
   }
 
@@ -803,6 +805,8 @@ schedule_pre_frac <- function(well_order_index,
   v_wireline_wait_days <- numeric(n)
   v_wireline_capacity_wait_days <- numeric(n)
   v_ct_caused_wait_days <- numeric(n)
+  v_ct_queueing_wait_days <- numeric(n)
+  v_ct_duration_floor_wait_days <- numeric(n)
 
   for (pos in seq_len(n)) {
     i <- well_order_index[pos]
@@ -827,6 +831,22 @@ schedule_pre_frac <- function(well_order_index,
     # ct_caused_wait_days comment for why these are the only two possible
     # causes in this pipeline.
     wl_finish_no_ct <- wl_avail_before + wireline_workload_days[pos]
+    # Second counterfactual: what wireline would have finished at if THIS
+    # well's CT had run on a fully dedicated unit (zero queueing) instead of
+    # the real, possibly-shared unit -- i.e. start CT at t=0 for this well
+    # alone. This isolates ct_caused_wait_days into:
+    #   - ct_queueing_wait_days:       removable by adding CT units
+    #   - ct_duration_floor_wait_days: NOT removable by adding units -- CT's
+    #     own per-well task simply takes longer than wireline+frac's pace,
+    #     so even an instantly-available CT unit would still gate wireline.
+    # Found by direct investigation: a synthetic check with ct_units raised
+    # all the way to n_wells (zero queueing possible) still left a nonzero,
+    # flat residual -- conflating that floor with queueing-driven delay would
+    # have told a user "add CT capacity" in a case where no amount of CT
+    # capacity fixes it; only a shorter CT task would.
+    ct_finish_dedicated <- ct_workload_days[pos]
+    wl_start_dedicated <- max(wl_avail_before, ct_finish_dedicated)
+    wl_finish_dedicated <- wl_start_dedicated + wireline_workload_days[pos]
 
     # --- Frac: earliest-available fleet; can't finish before this well's
     # wireline does (well-level pacing approximation).
@@ -854,11 +874,20 @@ schedule_pre_frac <- function(well_order_index,
     v_frac_fleet[pos]      <- fleet
     total_wait <- max(0, wl_finish - frac_finish_unpaced)
     capacity_wait <- max(0, wl_finish_no_ct - frac_finish_unpaced)
+    dedicated_wait <- max(0, wl_finish_dedicated - frac_finish_unpaced)
     v_wireline_wait_days[pos] <- total_wait
     v_wireline_capacity_wait_days[pos] <- capacity_wait
     # wl_finish >= wl_finish_no_ct always (the max() with ct_finish can only
     # push it up), so total_wait >= capacity_wait and this is never negative.
     v_ct_caused_wait_days[pos] <- total_wait - capacity_wait
+    # duration_floor: the part of the CT-caused wait that survives even with
+    # zero CT queueing (dedicated unit). queueing: the rest -- specifically
+    # the part that goes away once CT stops being shared/contended.
+    # wl_finish_dedicated <= wl_finish (real CT position is never earlier
+    # than a dedicated unit's), so dedicated_wait <= total_wait and the
+    # subtraction below is never negative.
+    v_ct_duration_floor_wait_days[pos] <- max(0, dedicated_wait - capacity_wait)
+    v_ct_queueing_wait_days[pos] <- v_ct_caused_wait_days[pos] - v_ct_duration_floor_wait_days[pos]
   }
 
   sched <- tibble(
@@ -873,7 +902,9 @@ schedule_pre_frac <- function(well_order_index,
     frac_finish_day = v_frac_finish,
     wireline_wait_days = v_wireline_wait_days,
     wireline_capacity_wait_days = v_wireline_capacity_wait_days,
-    ct_caused_wait_days = v_ct_caused_wait_days
+    ct_caused_wait_days = v_ct_caused_wait_days,
+    ct_queueing_wait_days = v_ct_queueing_wait_days,
+    ct_duration_floor_wait_days = v_ct_duration_floor_wait_days
   )
 
   list(
@@ -891,7 +922,13 @@ schedule_pre_frac <- function(well_order_index,
     # definition in the loop for why these are the only two possible causes
     # in a CT -> Wireline -> Frac pipeline.
     total_wireline_capacity_wait_days = sum(v_wireline_capacity_wait_days),
-    total_ct_caused_wait_days = sum(v_ct_caused_wait_days)
+    total_ct_caused_wait_days = sum(v_ct_caused_wait_days),
+    # Second-level split of total_ct_caused_wait_days: how much is removable
+    # by adding CT units (queueing) vs a floor that survives even with a
+    # dedicated CT unit per well (CT's own task duration exceeding
+    # wireline+frac's pace). These two sum exactly to total_ct_caused_wait_days.
+    total_ct_queueing_wait_days = sum(v_ct_queueing_wait_days),
+    total_ct_duration_floor_wait_days = sum(v_ct_duration_floor_wait_days)
   )
 }
 
@@ -1637,7 +1674,14 @@ simulate_campaign_detailed <- function(
           # start. Without this, a slow CT unit shows up entirely as
           # "waiting on wireline" even when wireline itself has ample units.
           wireline_capacity_wait_days = pf$well_schedule$wireline_capacity_wait_days,
-          ct_caused_wireline_wait_days = pf$well_schedule$ct_caused_wait_days
+          ct_caused_wireline_wait_days = pf$well_schedule$ct_caused_wait_days,
+          # Second-level split of ct_caused_wireline_wait_days: how much is
+          # removable by adding CT units (queueing) vs a floor that survives
+          # even with a dedicated CT unit per well (see schedule_pre_frac()'s
+          # ct_duration_floor_wait_days comment). Without this, "add CT
+          # capacity" advice would overstate what more units can fix.
+          ct_queueing_wireline_wait_days = pf$well_schedule$ct_queueing_wait_days,
+          ct_duration_floor_wireline_wait_days = pf$well_schedule$ct_duration_floor_wait_days
         )
       total_frac_related_days <- max(event_frac_finish_day)
     } else {
@@ -1649,6 +1693,8 @@ simulate_campaign_detailed <- function(
       # the formula just doesn't compute this distinction at all.
       well_df$wireline_capacity_wait_days <- NA_real_
       well_df$ct_caused_wireline_wait_days <- NA_real_
+      well_df$ct_queueing_wireline_wait_days <- NA_real_
+      well_df$ct_duration_floor_wireline_wait_days <- NA_real_
     }
 
     # Pass-1 campaign duration = frac critical path (milling excluded here).
@@ -1767,6 +1813,10 @@ simulate_campaign_detailed <- function(
         sum(well_df$wireline_capacity_wait_days, na.rm = TRUE) else NA_real_,
       total_ct_caused_wireline_wait_days = if (pre_frac_scheduling == "event")
         sum(well_df$ct_caused_wireline_wait_days, na.rm = TRUE) else NA_real_,
+      total_ct_queueing_wireline_wait_days = if (pre_frac_scheduling == "event")
+        sum(well_df$ct_queueing_wireline_wait_days, na.rm = TRUE) else NA_real_,
+      total_ct_duration_floor_wireline_wait_days = if (pre_frac_scheduling == "event")
+        sum(well_df$ct_duration_floor_wireline_wait_days, na.rm = TRUE) else NA_real_,
       total_ct_primary_workload_days = total_ct_primary_days,
       total_ct_workload_days = total_ct_primary_days + ct_milling_support_ct_days,
       total_milling_workload_days = total_milling_gross,
@@ -1833,7 +1883,8 @@ simulate_campaign_detailed <- function(
           wireline_contingency_pct, wireline_base_stage_days, wireline_contingency_days,
           temp_log_days, wireline_stage_readiness_days,
           wireline_fleet_days, wireline_readiness_delay_days,
-          wireline_capacity_wait_days, ct_caused_wireline_wait_days, ct_workload_days,
+          wireline_capacity_wait_days, ct_caused_wireline_wait_days,
+          ct_queueing_wireline_wait_days, ct_duration_floor_wireline_wait_days, ct_workload_days,
           milling_days_gross, risk_delay_days, frac_related_days, frac_release_day,
           milling_start_day, milling_finish_day, milling_resource, flowback_start_day, flowback_finish_day,
           frac_tree_constraint_delay_days, is_first_on_pad, well_transition_days, wireline_rework_days, extra_wireline_runs,
