@@ -30,6 +30,7 @@ jobs:
             any::stringr
             any::readr
             any::janitor
+            any::scales
 
       - name: Run check_regression.R (fast engine vs. original, bit-identical)
         working-directory: R
