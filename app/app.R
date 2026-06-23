@@ -1556,7 +1556,20 @@ server <- function(input, output, session) {
             flowback_testing_days_max = ui_params$flowback_testing_days_max,
             pre_frac_scheduling = ui_params$pre_frac_scheduling,
             risk_library = risk_library_snapshot,
-            seed = ui_params$seed + (mode_index - 1L)  # mode 1 = base seed; aligns with optimiser
+            # Same seed for every mode (common random numbers), not
+            # offset by position in `modes` -- offsetting by mode_index
+            # made a mode's result depend on what ELSE was being run
+            # alongside it: "Zipper" alone got seed+0 (mode_index=1 in its
+            # own 1-element modes vector) while "Zipper" inside "Compare
+            # both" got seed+1 (mode_index=2), so the same operation_mode
+            # produced two different P50s depending on the sidebar's
+            # Operation mode selection alone. A shared seed also makes the
+            # Conventional-vs-Zipper "saving" comparison (e.g.
+            # build_zipper_benefit_breakdown()) a genuine paired comparison
+            # instead of two independent samples -- matching the common-
+            # random-numbers convention optimise_campaign_scenarios()
+            # already uses for the scenario grid.
+            seed = ui_params$seed
           )
         }
 

@@ -29,7 +29,7 @@ build_run_args <- function(mode_index, base_seed = 123L) {
     zipper_efficiency = 0.75, risk_multiplier = 1,
     testing_units = 1, flowback_testing_days_min = 7, flowback_testing_days_max = 10,
     risk_library = NULL,
-    seed = base_seed + (mode_index - 1L),  # mirrors app.R's seed convention
+    seed = base_seed,  # mirrors app.R's seed convention: same seed for every mode
     keep_logs = TRUE, collect_well_details = TRUE
   )
 }
