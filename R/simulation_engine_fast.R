@@ -715,6 +715,32 @@ build_zipper_benefit_breakdown <- function(summary, zipper_efficiency = 0.75) {
                        median(zip$estimated_campaign_days,  na.rm = TRUE)
   frac_path_saving  <- (conv_path_pw - zip_path_pw) * n_wells
   post_frac_diff    <- frac_path_saving - total_saving
+  post_frac_other   <- -post_frac_diff
+
+  # By construction (telescoping subtraction: conv_path_pw -> step_a_pw ->
+  # step_b_pw -> zip_path_pw, then the post-frac residual closes the gap to
+  # total_saving) these four components sum EXACTLY to total_saving before
+  # rounding. Guard that invariant so a future formula change can't silently
+  # break it -- this should never fire.
+  unrounded_sum <- saving_efficiency + saving_wl_overlap + cost_ct_path + post_frac_other
+  if (abs(unrounded_sum - total_saving) > 1e-6) {
+    warning(sprintf(
+      "build_zipper_benefit_breakdown: components sum to %.4f but total_saving is %.4f (diff %.4f) -- telescoping invariant broken, check the formula.",
+      unrounded_sum, total_saving, unrounded_sum - total_saving))
+  }
+
+  # Round the total and the first 3 "real" components independently, then
+  # force the 4th (a catch-all/residual label already) to absorb whatever
+  # rounding residual is left, so the DISPLAYED integers always reconcile
+  # exactly -- not just within a tolerance. Independent per-number rounding
+  # is what broke this before: each of the 5 numbers was round()ed on its
+  # own, so the displayed parts could be off by 1-2 days from the displayed
+  # total even though the underlying math is exact.
+  total_r      <- round(total_saving, 0)
+  efficiency_r <- round(saving_efficiency, 0)
+  wl_overlap_r <- round(saving_wl_overlap, 0)
+  ct_path_r    <- round(cost_ct_path, 0)
+  post_frac_r  <- total_r - (efficiency_r + wl_overlap_r + ct_path_r)
 
   tibble::tibble(
     component   = c("Frac fleet efficiency (zipper ×0.75)",
@@ -722,13 +748,12 @@ build_zipper_benefit_breakdown <- function(summary, zipper_efficiency = 0.75) {
                     "CT path offset (CT adds in zipper)",
                     "Post-frac & other differences",
                     "Total saving"),
-    saving_days = round(c(saving_efficiency, saving_wl_overlap,
-                           cost_ct_path, -post_frac_diff, total_saving), 0),
+    saving_days = c(efficiency_r, wl_overlap_r, ct_path_r, post_frac_r, total_r),
     explanation = c(
       sprintf("Frac stages pump %.0f%% faster in zipper mode", round((1-zipper_efficiency)*100)),
       "Wireline preps next well during pumping; in conventional it adds sequentially to the path",
       "CT must precede each well in zipper (partial offset to the gains above)",
-      "Wireline idle cost, tree swap delays, post-frac queue differences",
+      "Wireline idle cost, tree swap delays, post-frac queue differences, and rounding residual",
       sprintf("Net P50 saving: Conv → Zip = %.0f d", total_saving)
     )
   )
@@ -2104,6 +2129,17 @@ summarise_stage_level_risks <- function(risk_event_log, summary = NULL) {
 build_traffic_lights <- function(summary, risk_event_log, resource_utilization) {
   if (is.null(summary) || nrow(summary) == 0) return(tibble())
 
+  # Single named source for every cutoff below. The "reason" text is built
+  # from these same constants, so it can never drift out of sync with the
+  # case_when() that actually assigns the colour -- same pattern as
+  # REC_DECISION_THRESHOLDS in recommendations.R.
+  TL_THRESHOLDS <- list(
+    schedule_red = 0.25, schedule_amber = 0.15,
+    resource_red = 0.85, resource_amber = 0.60,
+    operational_red = 0.10, operational_amber = 0.05,
+    wireline_red = 0.10, wireline_amber = 0.02
+  )
+
   sim_stats <- summarise_simulation(summary)
   resource_summary <- summarise_resource_utilization(resource_utilization)
   bottlenecks <- summarise_bottlenecks(resource_summary)
@@ -2124,7 +2160,11 @@ build_traffic_lights <- function(summary, risk_event_log, resource_utilization) 
 
   max_bottleneck <- bottlenecks %>%
     group_by(operation_mode) %>%
-    summarise(max_p90_utilization = max(p90_utilization, na.rm = TRUE), .groups = "drop")
+    summarise(
+      max_p90_utilization = max(p90_utilization, na.rm = TRUE),
+      max_p90_resource = resource[which.max(p90_utilization)],
+      .groups = "drop"
+    )
 
   out <- sim_stats %>%
     left_join(risk_by_mode, by = "operation_mode") %>%
@@ -2132,27 +2172,51 @@ build_traffic_lights <- function(summary, risk_event_log, resource_utilization) 
     mutate(
       uncertainty_ratio = (p90_days - p50_days) / pmax(p50_days, 1e-9),
       schedule_risk = case_when(
-        uncertainty_ratio >= 0.25 ~ "Red",
-        uncertainty_ratio >= 0.15 ~ "Amber",
+        uncertainty_ratio >= TL_THRESHOLDS$schedule_red ~ "Red",
+        uncertainty_ratio >= TL_THRESHOLDS$schedule_amber ~ "Amber",
         TRUE ~ "Green"
       ),
       resource_risk = case_when(
-        max_p90_utilization >= 0.85 ~ "Red",
-        max_p90_utilization >= 0.60 ~ "Amber",
+        max_p90_utilization >= TL_THRESHOLDS$resource_red ~ "Red",
+        max_p90_utilization >= TL_THRESHOLDS$resource_amber ~ "Amber",
         TRUE ~ "Green"
       ),
       operational_risk = case_when(
-        risk_delay_ratio >= 0.10 ~ "Red",
-        risk_delay_ratio >= 0.05 ~ "Amber",
+        risk_delay_ratio >= TL_THRESHOLDS$operational_red ~ "Red",
+        risk_delay_ratio >= TL_THRESHOLDS$operational_amber ~ "Amber",
         TRUE ~ "Green"
       ),
       wireline_constraint = case_when(
-        wireline_wait_ratio >= 0.10 ~ "Red",
-        wireline_wait_ratio > 0.02 ~ "Amber",
+        wireline_wait_ratio >= TL_THRESHOLDS$wireline_red ~ "Red",
+        wireline_wait_ratio > TL_THRESHOLDS$wireline_amber ~ "Amber",
         TRUE ~ "Green"
+      ),
+      # Quantitative justification for each light, built from the exact
+      # ratio + threshold that produced its colour above -- so a Red/Amber/
+      # Green call is never shown without the number behind it.
+      schedule_risk_reason = sprintf(
+        "P90 duration is %.0f%% above P50 (threshold: Red ≥%.0f%%, Amber ≥%.0f%%).",
+        100 * uncertainty_ratio, 100 * TL_THRESHOLDS$schedule_red, 100 * TL_THRESHOLDS$schedule_amber
+      ),
+      resource_risk_reason = sprintf(
+        "%s P90 utilization is %.0f%% (threshold: Red ≥%.0f%%, Amber ≥%.0f%%).",
+        ifelse(is.na(max_p90_resource), "The busiest resource", max_p90_resource),
+        100 * max_p90_utilization, 100 * TL_THRESHOLDS$resource_red, 100 * TL_THRESHOLDS$resource_amber
+      ),
+      operational_risk_reason = sprintf(
+        "Risk events contribute %.0f%% of expected campaign duration (threshold: Red ≥%.0f%%, Amber ≥%.0f%%).",
+        100 * risk_delay_ratio, 100 * TL_THRESHOLDS$operational_red, 100 * TL_THRESHOLDS$operational_amber
+      ),
+      wireline_constraint_reason = sprintf(
+        "Frac fleet waits on wireline for %.0f%% of campaign duration (threshold: Red ≥%.0f%%, Amber >%.0f%%).",
+        100 * wireline_wait_ratio, 100 * TL_THRESHOLDS$wireline_red, 100 * TL_THRESHOLDS$wireline_amber
       )
     ) %>%
-    select(operation_mode, schedule_risk, resource_risk, operational_risk, wireline_constraint,
+    select(operation_mode,
+           schedule_risk, schedule_risk_reason,
+           resource_risk, resource_risk_reason,
+           operational_risk, operational_risk_reason,
+           wireline_constraint, wireline_constraint_reason,
            uncertainty_ratio, max_p90_utilization, risk_delay_ratio, wireline_wait_ratio)
 
   out
@@ -3520,10 +3584,14 @@ build_investment_ranking <- function(summary, recommendations,
     operation_mode = character(), resource = character(), proposed_change = character(),
     p50_saving_days = numeric(), new_p50_days = numeric(), incremental_unit_cost = numeric(),
     schedule_value = numeric(), net_benefit = numeric(), benefit_cost_ratio = numeric(),
-    recommended_action = character()
+    roi_tier = character(), recommended_action = character()
   )
   if (is.null(recommendations) || nrow(recommendations) == 0) return(empty)
   if (is.null(summary) || nrow(summary) == 0) return(empty)
+
+  # Named thresholds for the ROI tier label, so "Excellent"/"Good"/"Marginal"
+  # can never drift out of sync with the cutoffs that assign them.
+  ROI_TIER_THRESHOLDS <- list(excellent = 5, good = 2)
 
   rate_lookup <- c(
     "Frac fleet" = frac_fleet_cost_per_day,
@@ -3557,13 +3625,19 @@ build_investment_ranking <- function(summary, recommendations,
       net_benefit = schedule_value - incremental_unit_cost,
       benefit_cost_ratio = ifelse(incremental_unit_cost > 0,
                                   schedule_value / incremental_unit_cost, NA_real_),
+      roi_tier = case_when(
+        is.na(benefit_cost_ratio)                       ~ NA_character_,
+        benefit_cost_ratio > ROI_TIER_THRESHOLDS$excellent ~ "Excellent",
+        benefit_cost_ratio >= ROI_TIER_THRESHOLDS$good     ~ "Good",
+        TRUE                                                ~ "Marginal"
+      ),
       proposed_change = paste0(resource, ": ", mean_units, " -> ", proposed_units)
     ) %>%
     filter(p50_saving_days > 0) %>%
     arrange(desc(net_benefit)) %>%
     select(
       operation_mode, resource, proposed_change, p50_saving_days, new_p50_days,
-      incremental_unit_cost, schedule_value, net_benefit, benefit_cost_ratio,
+      incremental_unit_cost, schedule_value, net_benefit, benefit_cost_ratio, roi_tier,
       recommended_action
     )
 }

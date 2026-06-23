@@ -437,6 +437,7 @@ ui <- page_sidebar(
           theme = "warning"
         )
       ),
+      uiOutput("readiness_breakdown"),
       # Zipper benefit breakdown card (only shown when both modes simulated)
       uiOutput("synthetic_data_banner"),
       uiOutput("total_cost_card"),
@@ -446,8 +447,19 @@ ui <- page_sidebar(
         col_widths = c(5, 7),
         card(
           full_screen = TRUE,
-          card_header("Critical bottleneck"),
-          uiOutput("bottleneck_narrative")
+          card_header(
+            "Critical bottleneck",
+            bslib::tooltip(
+              tags$span(class = "text-muted ms-1", style = "cursor: help;", "(?)"),
+              "Why: the limiting resource and its measured queue-delay contribution (not raw utilization alone). ",
+              "Evidence: the schedule impact of adding one unit, from the constraint cascade. ",
+              "Expected impact: the same number, verifiable by re-simulation.",
+              placement = "right"
+            )
+          ),
+          uiOutput("bottleneck_narrative"),
+          actionButton("verify_rec_overview", "Verify by re-simulation",
+                       class = "btn-sm btn-outline-primary mt-2")
         ),
         card(
           full_screen = TRUE,
@@ -456,7 +468,9 @@ ui <- page_sidebar(
           card_footer(tags$small(class = "text-muted",
             "Schedule value = P50 days saved x total daily spread rate. ",
             "Incremental cost = added unit's day rate x resulting P50 duration. ",
-            "Planning-level estimates - review against contract rates."))
+            "ROI = Schedule value / Incremental cost (Excellent >5x, Good 2-5x, Marginal <2x). ",
+            "Planning-level screening estimate (workload ÷ units, not re-simulated) for all 5 resources at once — ",
+            "run the Optimiser's “Run constraint cascade” for a verified, re-simulated ranking."))
         )
       ),
       layout_columns(
@@ -1636,7 +1650,11 @@ server <- function(input, output, session) {
                              milling_cost_per_day = input$milling_cost,
                              testing_unit_cost_per_day = input$testing_unit_cost)
   })
-  narrative_r <- reactive({ build_bottleneck_narrative(bottlenecks_r(), recommendations_r()) })
+  # Overview's "Critical bottleneck" card is now built from rec_v2_r()
+  # (defined below, near input$verify_rec) instead of
+  # build_bottleneck_narrative(), so it shares one source of truth with the
+  # Decision Support tab's Recommendation card and the Optimiser's
+  # constraint cascade.
 
   # ---- V2.5 decision-support layer (#1 recommendation, #2 bottleneck, #4 risk, #6 uncertainty, #12 narrative) ----
   .na_to_null <- function(x) if (is.null(x) || length(x) == 0 || all(is.na(x))) NULL else x
@@ -1674,6 +1692,18 @@ server <- function(input, output, session) {
     a <- sim_results()$args_by_mode[[focus_mode_r()]]
     a$progress_callback <- NULL; a$keep_logs <- FALSE; a$collect_well_details <- FALSE
     withProgress(message = "Verifying recommendation by re-simulation", value = 0.4, {
+      verified_rec_rv(recommend_action(sim_results(), sim_args = a, verify = TRUE))
+    })
+  })
+  # Same verify button as Decision Support's Recommendation card, surfaced on
+  # the Overview "Critical bottleneck" card too -- both write to the SAME
+  # verified_rec_rv, so the two tabs can never show a verified vs. unverified
+  # answer for the same run, and clicking either button updates both.
+  observeEvent(input$verify_rec_overview, {
+    req(sim_results())
+    a <- sim_results()$args_by_mode[[focus_mode_r()]]
+    a$progress_callback <- NULL; a$keep_logs <- FALSE; a$collect_well_details <- FALSE
+    withProgress(message = "Verifying bottleneck impact by re-simulation", value = 0.4, {
       verified_rec_rv(recommend_action(sim_results(), sim_args = a, verify = TRUE))
     })
   })
@@ -2751,7 +2781,20 @@ server <- function(input, output, session) {
       100 * saving_days / conventional$p50_days
     } else NA_real_
 
-    bn <- bottlenecks_r() %>% arrange(priority, desc(p90_utilization)) %>% slice(1)
+    # Single source of truth for "the campaign bottleneck": the same
+    # explain_bottlenecks()-based recommendation the Decision Support tab's
+    # Recommendation card and the Overview "Critical bottleneck" narrative
+    # use (rec_v2_r() -- see output$bottleneck_narrative below), so the value
+    # box headline can never name a different resource than the narrative
+    # card right underneath it. Previously this used summarise_bottlenecks(),
+    # a separate utilization-threshold ranking that could disagree with the
+    # narrative card and the Optimiser's constraint cascade.
+    rec <- tryCatch(rec_v2_r(), error = function(e) NULL)
+    bn <- if (!is.null(rec)) {
+      tibble::tibble(operation_mode = rec$operation_mode, resource = rec$bottleneck)
+    } else {
+      tibble::tibble()
+    }
     rd <- readiness_r() %>% arrange(readiness_score) %>% slice(1)
 
     # Two weakest readiness drivers, explained in operational units (days,
@@ -2780,6 +2823,24 @@ server <- function(input, output, session) {
       )
       weakest <- names(sort(comp_scores))[1:2]
       drivers <- paste(paste0(weakest, " – ", comp_desc[weakest]), collapse = "; ")
+
+      # Full 4-component breakdown (not just the weakest 2) for the
+      # expandable "Readiness score breakdown" panel, so the score is fully
+      # traceable on demand, not just summarised to its two weakest drivers.
+      comp_weights <- c(
+        "Schedule certainty" = rd$schedule_weight,
+        "Resource capacity" = rd$resource_weight,
+        "Risk exposure" = rd$risk_weight,
+        "Wireline readiness" = rd$wireline_weight
+      )
+      readiness_components <- tibble::tibble(
+        driver = names(comp_scores),
+        weight = unname(comp_weights[names(comp_scores)]),
+        score = unname(comp_scores),
+        description = unname(comp_desc[names(comp_scores)])
+      ) %>% dplyr::arrange(score)
+    } else {
+      readiness_components <- tibble::tibble()
     }
 
     idle_days <- mean(sim_results()$summary$total_wireline_readiness_delay_days, na.rm = TRUE)
@@ -2813,6 +2874,9 @@ server <- function(input, output, session) {
       readiness = if (nrow(rd) == 0) "N/A" else paste0(round(rd$readiness_score, 0), " / 100"),
       readiness_status = if (nrow(rd) == 0) "" else rd$readiness_status,
       readiness_drivers = drivers,
+      readiness_components = readiness_components,
+      readiness_mode = if (nrow(rd) == 0) NA_character_ else rd$operation_mode,
+      readiness_scoring_note = if (nrow(rd) == 0) "" else rd$scoring_note,
       bottleneck = if (nrow(bn) == 0) "N/A" else paste(bn$operation_mode, bn$resource, sep = " \u2013 "),
       bottleneck_resource = if (nrow(bn) == 0) NA_character_ else bn$resource,
       bottleneck_type = if (nrow(bn) == 0) "post_frac" else {
@@ -2852,6 +2916,36 @@ server <- function(input, output, session) {
   })
   output$vb_idle_days <- renderText({
     sprintf("%.1f mean idle days waiting on wireline", vb_data()$idle_days)
+  })
+
+  # Expandable, fully-traceable readiness breakdown: all 4 weighted
+  # components (not just the 2 weakest shown on the value box), each with
+  # its weight, 0-100 sub-score, and plain-English description -- reusing
+  # the exact comp_desc text already built in vb_data(), just not truncated.
+  output$readiness_breakdown <- renderUI({
+    d <- vb_data()
+    rc <- d$readiness_components
+    if (is.null(rc) || nrow(rc) == 0) return(NULL)
+    bslib::accordion(
+      open = FALSE,
+      bslib::accordion_panel(
+        sprintf("Readiness score breakdown — %s (%s, %s)", d$readiness_mode, d$readiness_status, d$readiness),
+        tags$table(class = "table table-sm mb-2",
+          tags$thead(tags$tr(tags$th("Driver"), tags$th("Weight"), tags$th("Score"), tags$th("What's driving it"))),
+          tags$tbody(
+            lapply(seq_len(nrow(rc)), function(i) {
+              tags$tr(
+                tags$td(rc$driver[i]),
+                tags$td(sprintf("%.0f%%", 100 * rc$weight[i])),
+                tags$td(sprintf("%.0f / 100", rc$score[i])),
+                tags$td(rc$description[i])
+              )
+            })
+          )
+        ),
+        tags$small(class = "text-muted", d$readiness_scoring_note)
+      )
+    )
   })
 
   output$vb_bottleneck_sub <- renderUI({
@@ -2928,19 +3022,46 @@ server <- function(input, output, session) {
     )
   })
 
+  # Built from rec_v2_r() -- the same Why/Evidence/Confidence object the
+  # Decision Support tab's Recommendation card renders -- instead of the
+  # separate build_bottleneck_narrative()/build_resource_recommendations()
+  # path, whose "days recoverable" was an undisclosed workload/units screening
+  # estimate (see R/simulation_engine_fast.R:2453-2489) that could name a
+  # different resource, with a different saving, than this same simulation's
+  # constraint cascade or Decision Support recommendation.
   output$bottleneck_narrative <- renderUI({
-    nb <- narrative_r()
-    if (nrow(nb) == 0) return(p("No bottleneck identified."))
-    status_cls <- switch(nb$bottleneck_status,
-                         Critical = "text-danger", Moderate = "text-warning", "text-success")
+    rec <- tryCatch(rec_v2_r(), error = function(e) NULL)
+    if (is.null(rec)) return(p("No bottleneck identified."))
+    status_cls <- switch(rec$status,
+                         Critical = "text-danger", Moderate = "text-warning",
+                         Minor = "text-warning", "text-success")
+    verified <- grepl("VERIFIED", rec$basis)
     tagList(
-      h3(class = "mb-1", paste(nb$operation_mode, "\u2013", nb$resource)),
+      h3(class = "mb-1", paste(rec$operation_mode, "\u2013", rec$bottleneck)),
       p(class = paste("fw-bold", status_cls),
-        sprintf("%s | P90 utilization %.0f%%", nb$bottleneck_status, 100 * nb$p90_utilization)),
-      if (nb$p50_saving_days > 0) {
-        p(sprintf("Expected impact: ~%.0f days of campaign duration recoverable.", nb$p50_saving_days))
+        sprintf("%s | P90 utilization %.0f%%", rec$status, 100 * rec$p90_utilization)),
+      tags$div(class = "mt-2",
+        tags$strong("Why: "),
+        sprintf("%s is the current campaign bottleneck (%s) -- ranked by measured queue-delay contribution to P50 duration, not raw utilization alone.",
+                rec$bottleneck, rec$status)),
+      tags$div(class = "mt-2",
+        tags$strong("Evidence: "),
+        # rec$bottleneck is already a complete noun phrase (e.g. "Testing
+        # unit", "Wireline", "CT / cleanout") -- don't append a second
+        # "unit" or it reads "testing unit unit".
+        sprintf("Adding one more %s reduces campaign P50 by %.0f days.", rec$bottleneck, rec$expected_reduction_days),
+        tags$span(class = if (verified) "badge bg-success ms-1" else "badge bg-secondary ms-1",
+                  if (verified) "VERIFIED by re-simulation" else "ESTIMATED")),
+      tags$div(class = "mt-2",
+        tags$strong("Expected impact: "),
+        sprintf("Estimated duration reduction = %.0f days. ", rec$expected_reduction_days),
+        tags$span(class = "text-muted", sprintf("[%s]", rec$decision_status))),
+      p(class = "mt-2", tags$strong("Recommended action: "), rec$recommendation),
+      tags$small(class = "text-muted d-block", rec$decision_reason),
+      if (!verified) {
+        tags$small(class = "text-muted d-block mt-1",
+          "Click \u201cVerify by re-simulation\u201d to confirm this estimate by re-running the simulation with one extra unit and comparing paired outcomes.")
       },
-      p(tags$strong("Recommended action: "), nb$recommended_action),
       # If milling/testing is the campaign bottleneck but wireline is also
       # causing frac idle cost, explain that these are two separate issues.
       {
@@ -2952,7 +3073,7 @@ server <- function(input, output, session) {
             tags$small(
               sprintf(
                 "The campaign bottleneck is %s (drives total duration). ",
-                nb$resource
+                rec$bottleneck
               )),
             tags$small(
               sprintf(
@@ -2973,7 +3094,9 @@ server <- function(input, output, session) {
       return(datatable(tibble(message = "No resource addition shows a positive schedule saving."),
                        options = list(dom = "t"), rownames = FALSE))
     }
-    inv %>%
+    # Already sorted by desc(net_benefit) in build_investment_ranking() --
+    # row 1 is the highest-value recommendation, highlighted below.
+    df <- inv %>%
       transmute(
         Mode = operation_mode,
         Change = proposed_change,
@@ -2981,10 +3104,16 @@ server <- function(input, output, session) {
         `Incremental cost` = incremental_unit_cost,
         `Schedule value` = schedule_value,
         `Net benefit` = net_benefit,
-        `Benefit / cost` = round(benefit_cost_ratio, 2)
-      ) %>%
-      datatable(options = list(dom = "t", scrollX = TRUE), rownames = FALSE) %>%
-      formatCurrency(c("Incremental cost", "Schedule value", "Net benefit"), digits = 0)
+        ROI = paste0(round(benefit_cost_ratio, 1), "x"),
+        Tier = roi_tier
+      )
+    datatable(df, options = list(dom = "t", scrollX = TRUE), rownames = FALSE) %>%
+      formatCurrency(c("Incremental cost", "Schedule value", "Net benefit"), digits = 0) %>%
+      formatStyle("Tier",
+                  color = styleEqual(c("Excellent", "Good", "Marginal"), c("#1b9e77", "#e6ab02", "#d62728")),
+                  fontWeight = "bold") %>%
+      formatStyle(names(df), target = "row",
+                  backgroundColor = styleRow(1, "#FFF3CD"))
   })
 
   output$validation_plot <- renderPlot({
@@ -3093,8 +3222,27 @@ server <- function(input, output, session) {
   })
   output$results_table <- renderDT({ req(sim_results()); dt_simple(sim_results()$summary) })
   output$traffic_light_table <- renderDT({
-    datatable(safe_round_df(traffic_r(), 3), options = list(dom = "t", scrollX = TRUE), rownames = FALSE) %>%
-      formatStyle(c("schedule_risk", "resource_risk", "operational_risk", "wireline_constraint"),
+    tr <- traffic_r()
+    if (is.null(tr) || nrow(tr) == 0) return(datatable(tibble(), options = list(dom = "t")))
+    # One row per (mode, light) instead of one row per mode with 4 wide
+    # status+reason column pairs -- a "Reason" sentence reads far better
+    # in a narrow table than crammed next to 7 other columns.
+    cats <- list(
+      list(label = "Schedule Risk",       status = "schedule_risk",       reason = "schedule_risk_reason"),
+      list(label = "Resource Risk",       status = "resource_risk",       reason = "resource_risk_reason"),
+      list(label = "Operational Risk",    status = "operational_risk",    reason = "operational_risk_reason"),
+      list(label = "Wireline Constraint", status = "wireline_constraint", reason = "wireline_constraint_reason")
+    )
+    long <- dplyr::bind_rows(lapply(cats, function(cg) {
+      tibble::tibble(
+        `Operation mode` = tr$operation_mode,
+        `Traffic light`  = cg$label,
+        Status           = tr[[cg$status]],
+        Reason           = tr[[cg$reason]]
+      )
+    })) %>% dplyr::arrange(`Operation mode`, `Traffic light`)
+    datatable(long, options = list(dom = "t", scrollX = TRUE, pageLength = 20), rownames = FALSE) %>%
+      formatStyle("Status",
                   color = styleEqual(c("Green", "Amber", "Red"), c("#1b9e77", "#e6ab02", "#d62728")),
                   fontWeight = "bold")
   })
