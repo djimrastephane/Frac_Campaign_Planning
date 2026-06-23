@@ -500,7 +500,8 @@ ui <- page_sidebar(
           card_header("Fitted distributions — density overlay"),
           card_body(plotOutput("learning_density_plot", height = "420px")),
           card_footer(tags$small(class = "text-muted",
-            "Grey bars = empirical data. Solid line = best fit (lowest AIC). ",
+            "Grey bars = empirical data. Solid line = least-bad candidate (lowest AIC among the 4 tested — ",
+            "see the KS p-value below for whether it's a statistically adequate fit, not just the best of a bad lot). ",
             "Dashed lines = other candidate distributions."))
         )
       ),
@@ -516,7 +517,13 @@ ui <- page_sidebar(
         card(
           full_screen = TRUE,
           card_header("Distribution fitting results — AIC / BIC / KS ranking"),
-          card_body(DT::DTOutput("learning_fit_table"))
+          card_body(DT::DTOutput("learning_fit_table")),
+          card_footer(tags$small(class = "text-muted",
+            "Rank = lowest AIC among the 4 candidates, not a goodness-of-fit claim. ",
+            "KS p-value < 0.05 means the Kolmogorov-Smirnov test REJECTS that distribution as the data's ",
+            "true generator — common for operational data with a heavier tail than Normal/Lognormal/Gamma/Weibull ",
+            "can capture. When even rank 1 fails that test (see \"Adequate (p>=0.05)\"), treat it as the ",
+            "least-bad candidate tried, not a confirmed correct distribution."))
         )
       ),
       layout_columns(
@@ -531,7 +538,10 @@ ui <- page_sidebar(
           card_header("Suggested planning assumptions (auto-generated)"),
           card_body(DT::DTOutput("learning_suggested_table")),
           card_footer(tags$small(class = "text-muted",
-            "Min / Mode / Max derived from P5 / mode / P95 of the best-fit distribution. ",
+            "Min / Mode / Max derived from P5 / mode / P95 of the listed candidate. ",
+            "See the \"Basis\" column: when KS p-value < 0.05, no tested distribution is a statistically ",
+            "adequate fit and the candidate shown is the least-bad of the 4 tried, not a confirmed correct ",
+            "distribution -- still a reasonable planning input, just not a precise tail-risk model. ",
             "Use these to populate the min_days / most_likely_days / max_days columns ",
             "in master_risks_assumptions.csv for stage-duration rows."))
         )
@@ -2116,10 +2126,20 @@ server <- function(input, output, session) {
       tags$ul(class = "mb-0 small",
         lapply(lr, function(r) {
           if (is.null(r$best_fit)) return(tags$li(sprintf("%s: %s", r$label, r$note)))
+          # KS p-value < 0.05 means the goodness-of-fit test rejects this
+          # distribution as the data's true generator -- common for
+          # operational data with a heavier tail than any of the 4
+          # candidates. Say "least-bad candidate" rather than implying a
+          # confirmed correct fit when that's the case.
+          fit_desc <- if (isTRUE(r$best_is_adequate)) {
+            sprintf("best fit = %s (AIC %.1f, KS p=%.3f)", r$best_fit$family, r$best_fit$aic, r$best_fit$ks_pvalue)
+          } else {
+            sprintf("least-bad candidate = %s (AIC %.1f, KS p=%.3f -- no candidate distribution passes goodness-of-fit at p<0.05)",
+                    r$best_fit$family, r$best_fit$aic, r$best_fit$ks_pvalue)
+          }
           tags$li(sprintf(
-            "%s: best fit = %s (AIC %.1f). Suggested triangular: min=%.3f d, mode=%.3f d, max=%.3f d.",
-            r$label, r$best_fit$family, r$best_fit$aic,
-            r$suggested_min, r$suggested_mode, r$suggested_max))
+            "%s: %s. Suggested triangular: min=%.3f d, mode=%.3f d, max=%.3f d.",
+            r$label, fit_desc, r$suggested_min, r$suggested_mode, r$suggested_max))
         })
       )
     )
@@ -2140,7 +2160,9 @@ server <- function(input, output, session) {
       if (is.null(r$fit_table)) return(NULL)
       r$fit_table %>% mutate(Parameter = r$label) %>%
         select(Parameter, everything())
-    }))
+    })) %>%
+      mutate(`Adequate (p>=0.05)` = ifelse(is.na(`Adequate (p>=0.05)`), "N/A",
+                                            ifelse(`Adequate (p>=0.05)`, "Yes", "No")))
     DT::datatable(df %>% select(-Best), rownames = FALSE,
                   options = list(dom = "t", scrollX = TRUE, pageLength = 8)) %>%
       DT::formatStyle("Rank",
@@ -2149,7 +2171,10 @@ server <- function(input, output, session) {
       DT::formatStyle("AIC",
         background = DT::styleColorBar(range(df$AIC, na.rm = TRUE), "#cce5ff"),
         backgroundSize = "90% 55%", backgroundRepeat = "no-repeat",
-        backgroundPosition = "center")
+        backgroundPosition = "center") %>%
+      DT::formatStyle("Adequate (p>=0.05)",
+        color = DT::styleEqual(c("Yes", "No", "N/A"), c("#1b9e77", "#d62728", "#888888")),
+        fontWeight = "bold")
   })
 
   output$learning_desc_table <- DT::renderDT({

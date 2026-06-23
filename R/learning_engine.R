@@ -173,6 +173,13 @@ learn_from_historical <- function(historical_wells) {
     fits <- .fit_all(x)
     best <- fits[[1]]  # lowest AIC
 
+    # KS_ADEQUACY_ALPHA: the standard 0.05 significance level for a KS
+    # goodness-of-fit test. p < 0.05 means we can reject "the data came from
+    # this distribution" -- i.e. the fit is not statistically adequate, just
+    # the least bad of the candidates tried. Named here so the UI wording
+    # below and the fit table's "Adequate" column can't drift apart.
+    KS_ADEQUACY_ALPHA <- 0.05
+
     fit_table <- bind_rows(lapply(seq_along(fits), function(i) {
       f <- fits[[i]]
       tibble(
@@ -183,10 +190,17 @@ learn_from_historical <- function(historical_wells) {
         BIC          = round(f$bic, 2),
         `KS stat`    = round(f$ks_stat, 4),
         `KS p-value` = round(f$ks_pvalue, 4),
+        `Adequate (p>=0.05)` = ifelse(is.na(f$ks_pvalue), NA, f$ks_pvalue >= KS_ADEQUACY_ALPHA),
         Converged    = f$converged,
         Best         = i == 1
       )
     }))
+
+    # No candidate distribution is a statistically adequate fit -- the KS
+    # test rejects all of them at p<0.05. The "best" one is still useful as
+    # a planning input, but it's the least-bad candidate among those tested,
+    # not "the correct distribution" for this data.
+    best_is_adequate <- !is.na(best$ks_pvalue) && best$ks_pvalue >= KS_ADEQUACY_ALPHA
 
     list(
       parameter      = key,
@@ -196,6 +210,7 @@ learn_from_historical <- function(historical_wells) {
       fits           = fits,
       fit_table      = fit_table,
       best_fit       = best,
+      best_is_adequate = best_is_adequate,
       suggested_min  = round(best$p5,   3),
       suggested_mode = round(best$mode, 3),
       suggested_max  = round(best$p95,  3),
@@ -219,13 +234,26 @@ suggested_assumptions_table <- function(learning) {
         `Basis` = r$note %||% "Insufficient data"
       ))
     }
+    # KS p-value < 0.05 means the KS test rejects this distribution as the
+    # data's true generating distribution -- so it's the least-bad
+    # candidate among those tested, not a confirmed correct fit. Say so
+    # explicitly here since this table is what users copy into
+    # master_risks_assumptions.csv.
+    basis <- if (isTRUE(r$best_is_adequate)) {
+      sprintf("P5 / mode / P95 of best-fit distribution (KS p=%.3f, not rejected at p<0.05)",
+              r$best_fit$ks_pvalue)
+    } else {
+      sprintf("P5 / mode / P95 of the LEAST-BAD candidate (KS p=%.3f -- rejected at p<0.05; no tested distribution is a statistically adequate fit)",
+              r$best_fit$ks_pvalue)
+    }
     tibble(
       Parameter           = r$label,
-      `Best fit`          = r$best_fit$family,
+      `Best fit`          = if (isTRUE(r$best_is_adequate)) r$best_fit$family
+                             else paste0(r$best_fit$family, " (least-bad)"),
       `Suggested min (d)` = r$suggested_min,
       `Suggested mode (d)` = r$suggested_mode,
       `Suggested max (d)` = r$suggested_max,
-      `Basis`             = "P5 / mode / P95 of best-fit distribution"
+      `Basis`             = basis
     )
   }))
 }
