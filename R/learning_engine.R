@@ -26,6 +26,48 @@ suppressPackageStartupMessages({
 
 .DIST_FAMILIES <- c("Normal", "Lognormal", "Gamma", "Weibull")
 
+# ---- Fit quality wording -------------------------------------------------
+# Single named source for the KS p-value cutoffs behind "Fit quality" and its
+# accompanying note, so the wording in the fit table, the suggested-
+# assumptions table, and the status summary can never drift apart.
+#   Good     : p >= 0.10 -- not rejected by the KS test at the usual 0.05
+#              level, with some margin.
+#   Moderate : 0.01 <= p < 0.10 -- formally rejected (or borderline) but not
+#              by a wide margin; still a reasonable planning input.
+#   Poor     : p < 0.01 -- strongly rejected; none of the 4 candidates
+#              describe this data well.
+FIT_QUALITY_THRESHOLDS <- list(good = 0.10, moderate = 0.01)
+
+.fit_quality_label <- function(ks_pvalue) {
+  dplyr::case_when(
+    is.na(ks_pvalue)                                 ~ NA_character_,
+    ks_pvalue >= FIT_QUALITY_THRESHOLDS$good          ~ "Good",
+    ks_pvalue >= FIT_QUALITY_THRESHOLDS$moderate      ~ "Moderate",
+    TRUE                                               ~ "Poor"
+  )
+}
+
+#' Plain-language note for a given fit quality tier. Never claims the
+#' selected distribution is "correct" -- only that it's the most suitable
+#' of the candidates actually evaluated.
+.fit_quality_note <- function(quality, ks_pvalue) {
+  if (is.na(quality)) return("Fit quality unavailable.")
+  if (quality == "Good") {
+    return(sprintf("Selected distribution fits the historical data well (KS p=%.3f).", ks_pvalue))
+  }
+  if (quality == "Moderate") {
+    return(paste0(
+      sprintf("No tested distribution perfectly matches the historical data (KS p=%.3f). ", ks_pvalue),
+      "The selected distribution is the most suitable candidate for planning ",
+      "and simulation among those evaluated."))
+  }
+  # Poor
+  paste0(
+    sprintf("None of the tested distributions adequately describe the historical data (KS p=%.3f). ", ks_pvalue),
+    "The selected distribution is still the most suitable candidate evaluated, but treat the ",
+    "suggested planning range with extra caution and consider gathering more historical data.")
+}
+
 # ---- Descriptive statistics --------------------------------------------------
 
 .desc_stats <- function(x) {
@@ -173,13 +215,6 @@ learn_from_historical <- function(historical_wells) {
     fits <- .fit_all(x)
     best <- fits[[1]]  # lowest AIC
 
-    # KS_ADEQUACY_ALPHA: the standard 0.05 significance level for a KS
-    # goodness-of-fit test. p < 0.05 means we can reject "the data came from
-    # this distribution" -- i.e. the fit is not statistically adequate, just
-    # the least bad of the candidates tried. Named here so the UI wording
-    # below and the fit table's "Adequate" column can't drift apart.
-    KS_ADEQUACY_ALPHA <- 0.05
-
     fit_table <- bind_rows(lapply(seq_along(fits), function(i) {
       f <- fits[[i]]
       tibble(
@@ -190,17 +225,14 @@ learn_from_historical <- function(historical_wells) {
         BIC          = round(f$bic, 2),
         `KS stat`    = round(f$ks_stat, 4),
         `KS p-value` = round(f$ks_pvalue, 4),
-        `Adequate (p>=0.05)` = ifelse(is.na(f$ks_pvalue), NA, f$ks_pvalue >= KS_ADEQUACY_ALPHA),
+        `Fit quality` = .fit_quality_label(f$ks_pvalue),
         Converged    = f$converged,
         Best         = i == 1
       )
     }))
 
-    # No candidate distribution is a statistically adequate fit -- the KS
-    # test rejects all of them at p<0.05. The "best" one is still useful as
-    # a planning input, but it's the least-bad candidate among those tested,
-    # not "the correct distribution" for this data.
-    best_is_adequate <- !is.na(best$ks_pvalue) && best$ks_pvalue >= KS_ADEQUACY_ALPHA
+    best_fit_quality <- .fit_quality_label(best$ks_pvalue)
+    best_fit_note     <- .fit_quality_note(best_fit_quality, best$ks_pvalue)
 
     list(
       parameter      = key,
@@ -210,7 +242,8 @@ learn_from_historical <- function(historical_wells) {
       fits           = fits,
       fit_table      = fit_table,
       best_fit       = best,
-      best_is_adequate = best_is_adequate,
+      fit_quality    = best_fit_quality,
+      fit_quality_note = best_fit_note,
       suggested_min  = round(best$p5,   3),
       suggested_mode = round(best$mode, 3),
       suggested_max  = round(best$p95,  3),
@@ -227,33 +260,27 @@ suggested_assumptions_table <- function(learning) {
     if (is.null(r$best_fit)) {
       return(tibble(
         Parameter = r$label,
-        `Best fit` = "N/A",
+        `Selected planning distribution` = "N/A",
+        `Fit quality` = "N/A",
         `Suggested min (d)` = NA_real_,
         `Suggested mode (d)` = NA_real_,
         `Suggested max (d)` = NA_real_,
-        `Basis` = r$note %||% "Insufficient data"
+        `Note` = r$note %||% "Insufficient data"
       ))
     }
-    # KS p-value < 0.05 means the KS test rejects this distribution as the
-    # data's true generating distribution -- so it's the least-bad
-    # candidate among those tested, not a confirmed correct fit. Say so
-    # explicitly here since this table is what users copy into
-    # master_risks_assumptions.csv.
-    basis <- if (isTRUE(r$best_is_adequate)) {
-      sprintf("P5 / mode / P95 of best-fit distribution (KS p=%.3f, not rejected at p<0.05)",
-              r$best_fit$ks_pvalue)
-    } else {
-      sprintf("P5 / mode / P95 of the LEAST-BAD candidate (KS p=%.3f -- rejected at p<0.05; no tested distribution is a statistically adequate fit)",
-              r$best_fit$ks_pvalue)
-    }
+    # The note never claims the selected distribution is "correct" -- only
+    # that it's the most suitable candidate among those actually evaluated.
+    # Same wording the status summary and fit table use (.fit_quality_note()),
+    # so this table -- the one users copy into master_risks_assumptions.csv --
+    # can't say something different from the rest of the tab.
     tibble(
-      Parameter           = r$label,
-      `Best fit`          = if (isTRUE(r$best_is_adequate)) r$best_fit$family
-                             else paste0(r$best_fit$family, " (least-bad)"),
-      `Suggested min (d)` = r$suggested_min,
-      `Suggested mode (d)` = r$suggested_mode,
-      `Suggested max (d)` = r$suggested_max,
-      `Basis`             = basis
+      Parameter                        = r$label,
+      `Selected planning distribution` = r$best_fit$family,
+      `Fit quality`                    = r$fit_quality,
+      `Suggested min (d)`              = r$suggested_min,
+      `Suggested mode (d)`             = r$suggested_mode,
+      `Suggested max (d)`              = r$suggested_max,
+      `Note`                           = r$fit_quality_note
     )
   }))
 }

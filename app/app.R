@@ -500,8 +500,8 @@ ui <- page_sidebar(
           card_header("Fitted distributions — density overlay"),
           card_body(plotOutput("learning_density_plot", height = "420px")),
           card_footer(tags$small(class = "text-muted",
-            "Grey bars = empirical data. Solid line = least-bad candidate (lowest AIC among the 4 tested — ",
-            "see the KS p-value below for whether it's a statistically adequate fit, not just the best of a bad lot). ",
+            "Grey bars = empirical data. Solid line = selected planning distribution (lowest AIC among the 4 tested — ",
+            "see Fit quality below for how well it actually matches the data). ",
             "Dashed lines = other candidate distributions."))
         )
       ),
@@ -520,10 +520,11 @@ ui <- page_sidebar(
           card_body(DT::DTOutput("learning_fit_table")),
           card_footer(tags$small(class = "text-muted",
             "Rank = lowest AIC among the 4 candidates, not a goodness-of-fit claim. ",
-            "KS p-value < 0.05 means the Kolmogorov-Smirnov test REJECTS that distribution as the data's ",
-            "true generator — common for operational data with a heavier tail than Normal/Lognormal/Gamma/Weibull ",
-            "can capture. When even rank 1 fails that test (see \"Adequate (p>=0.05)\"), treat it as the ",
-            "least-bad candidate tried, not a confirmed correct distribution."))
+            "Fit quality (Good / Moderate / Poor) comes from the KS p-value: a low p-value means the ",
+            "Kolmogorov-Smirnov test rejects that distribution as the data's true generator — common for ",
+            "operational data with a heavier tail than Normal/Lognormal/Gamma/Weibull can capture. ",
+            "Even when rank 1's fit quality is Moderate or Poor, it's still the most suitable candidate ",
+            "evaluated — not a confirmed correct distribution."))
         )
       ),
       layout_columns(
@@ -538,10 +539,10 @@ ui <- page_sidebar(
           card_header("Suggested planning assumptions (auto-generated)"),
           card_body(DT::DTOutput("learning_suggested_table")),
           card_footer(tags$small(class = "text-muted",
-            "Min / Mode / Max derived from P5 / mode / P95 of the listed candidate. ",
-            "See the \"Basis\" column: when KS p-value < 0.05, no tested distribution is a statistically ",
-            "adequate fit and the candidate shown is the least-bad of the 4 tried, not a confirmed correct ",
-            "distribution -- still a reasonable planning input, just not a precise tail-risk model. ",
+            "Min / Mode / Max derived from P5 / mode / P95 of the selected planning distribution. ",
+            "See the \"Note\" column: when Fit quality is Moderate or Poor, no tested distribution ",
+            "perfectly matches the historical data -- the one shown is still the most suitable candidate ",
+            "evaluated, just not a precise tail-risk model. ",
             "Use these to populate the min_days / most_likely_days / max_days columns ",
             "in master_risks_assumptions.csv for stage-duration rows."))
         )
@@ -2123,25 +2124,22 @@ server <- function(input, output, session) {
       else
         tags$p(class = "text-success fw-bold",
           sprintf("Fitted on %d historical wells.", n_wells)),
-      tags$ul(class = "mb-0 small",
-        lapply(lr, function(r) {
-          if (is.null(r$best_fit)) return(tags$li(sprintf("%s: %s", r$label, r$note)))
-          # KS p-value < 0.05 means the goodness-of-fit test rejects this
-          # distribution as the data's true generator -- common for
-          # operational data with a heavier tail than any of the 4
-          # candidates. Say "least-bad candidate" rather than implying a
-          # confirmed correct fit when that's the case.
-          fit_desc <- if (isTRUE(r$best_is_adequate)) {
-            sprintf("best fit = %s (AIC %.1f, KS p=%.3f)", r$best_fit$family, r$best_fit$aic, r$best_fit$ks_pvalue)
-          } else {
-            sprintf("least-bad candidate = %s (AIC %.1f, KS p=%.3f -- no candidate distribution passes goodness-of-fit at p<0.05)",
-                    r$best_fit$family, r$best_fit$aic, r$best_fit$ks_pvalue)
-          }
-          tags$li(sprintf(
-            "%s: %s. Suggested triangular: min=%.3f d, mode=%.3f d, max=%.3f d.",
-            r$label, fit_desc, r$suggested_min, r$suggested_mode, r$suggested_max))
-        })
-      )
+      lapply(lr, function(r) {
+        if (is.null(r$best_fit)) {
+          return(div(class = "mb-2", tags$strong(r$label), tags$span(class = "text-muted ms-1", r$note)))
+        }
+        quality_cls <- switch(r$fit_quality, Good = "text-success", Moderate = "text-warning",
+                              Poor = "text-danger", "text-muted")
+        div(class = "mb-3 p-2 border rounded",
+          tags$div(class = "small text-muted", r$label),
+          tags$div(tags$strong("Selected planning distribution: "), r$best_fit$family),
+          tags$div(tags$strong("Fit quality: "), tags$span(class = paste("fw-bold", quality_cls), r$fit_quality)),
+          tags$div(tags$strong("Note: "), tags$span(class = "small", r$fit_quality_note)),
+          tags$div(class = "small mt-1",
+            sprintf("Suggested triangular: min=%.3f d, mode=%.3f d, max=%.3f d.",
+                    r$suggested_min, r$suggested_mode, r$suggested_max))
+        )
+      })
     )
   })
 
@@ -2161,19 +2159,27 @@ server <- function(input, output, session) {
       r$fit_table %>% mutate(Parameter = r$label) %>%
         select(Parameter, everything())
     })) %>%
-      mutate(`Adequate (p>=0.05)` = ifelse(is.na(`Adequate (p>=0.05)`), "N/A",
-                                            ifelse(`Adequate (p>=0.05)`, "Yes", "No")))
+      mutate(`Fit quality` = ifelse(is.na(`Fit quality`), "N/A", `Fit quality`))
+    # A degenerate (e.g. zero-variance) input column can make fitdistr()
+    # return an infinite AIC for one or more candidates. range() then
+    # includes +-Inf, which styleColorBar() serialises as the literal token
+    # "Inf" into the generated JS -- not valid JS, so the whole table
+    # renders empty with a "ReferenceError: Inf is not defined" console
+    # error. Fall back to the finite AIC values only.
+    finite_aic <- df$AIC[is.finite(df$AIC)]
+    aic_range <- if (length(finite_aic) > 0) range(finite_aic) else c(0, 1)
     DT::datatable(df %>% select(-Best), rownames = FALSE,
                   options = list(dom = "t", scrollX = TRUE, pageLength = 8)) %>%
       DT::formatStyle("Rank",
         target = "row",
         backgroundColor = DT::styleEqual(1, "#d4edda")) %>%
       DT::formatStyle("AIC",
-        background = DT::styleColorBar(range(df$AIC, na.rm = TRUE), "#cce5ff"),
+        background = DT::styleColorBar(aic_range, "#cce5ff"),
         backgroundSize = "90% 55%", backgroundRepeat = "no-repeat",
         backgroundPosition = "center") %>%
-      DT::formatStyle("Adequate (p>=0.05)",
-        color = DT::styleEqual(c("Yes", "No", "N/A"), c("#1b9e77", "#d62728", "#888888")),
+      DT::formatStyle("Fit quality",
+        color = DT::styleEqual(c("Good", "Moderate", "Poor", "N/A"),
+                                c("#1b9e77", "#e6ab02", "#d62728", "#888888")),
         fontWeight = "bold")
   })
 
@@ -2195,7 +2201,11 @@ server <- function(input, output, session) {
     df <- suggested_assumptions_table(lr)
     DT::datatable(df, rownames = FALSE,
                   options = list(dom = "t", scrollX = TRUE)) %>%
-      DT::formatStyle("Best fit", fontWeight = "bold")
+      DT::formatStyle("Selected planning distribution", fontWeight = "bold") %>%
+      DT::formatStyle("Fit quality",
+        color = DT::styleEqual(c("Good", "Moderate", "Poor", "N/A"),
+                                c("#1b9e77", "#e6ab02", "#d62728", "#888888")),
+        fontWeight = "bold")
   })
 
   # ---- Bayesian Update (Issue #7) -------------------------------------------
