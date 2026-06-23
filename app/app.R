@@ -535,6 +535,23 @@ ui <- page_sidebar(
             "Use these to populate the min_days / most_likely_days / max_days columns ",
             "in master_risks_assumptions.csv for stage-duration rows."))
         )
+      ),
+      card(
+        full_screen = TRUE,
+        card_header("Outlier well summary — frac days per stage"),
+        card_body(
+          DT::DTOutput("outlier_summary_table"),
+          tags$hr(),
+          tags$p(class = "small text-muted mb-1",
+            "Wells above the P95 threshold for this metric. Click a row to see why."),
+          DT::DTOutput("outlier_wells_table"),
+          uiOutput("outlier_well_detail")
+        ),
+        card_footer(tags$small(class = "text-muted",
+          "historical_wells.csv has no risk-event/\"reason\" field, so \"contributing factor(s)\" ",
+          "is a best-effort guess from the other recorded columns (stage overrun, contingency ",
+          "plugs, cement-eval/milling time well above the typical well) -- not a confirmed cause. ",
+          "When nothing stands out, investigate the well's field records directly."))
       )
     ),
 
@@ -2024,6 +2041,55 @@ server <- function(input, output, session) {
     tryCatch(
       learn_from_historical(dat$historical),
       error = function(e) { warning("Learning engine: ", conditionMessage(e)); NULL }
+    )
+  })
+
+  outlier_r <- reactive({
+    dat <- input_data()
+    req(isTRUE(dat$ok))
+    tryCatch(
+      summarise_outlier_wells(dat$historical, metric = "frac_days_per_stage"),
+      error = function(e) { warning("Outlier summary: ", conditionMessage(e)); NULL }
+    )
+  })
+
+  output$outlier_summary_table <- DT::renderDT({
+    o <- tryCatch(outlier_r(), error = function(e) NULL)
+    if (is.null(o)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    df <- tibble::tibble(
+      Metric = c("Wells analysed", "P50 duration", "P90 duration", "Maximum observed",
+                 sprintf("Outlier wells (>P95, %.2f d)", o$threshold)),
+      Value = c(as.character(o$n_wells),
+                if (is.na(o$p50)) "N/A" else sprintf("%.2f d", o$p50),
+                if (is.na(o$p90)) "N/A" else sprintf("%.2f d", o$p90),
+                if (is.na(o$max)) "N/A" else sprintf("%.2f d", o$max),
+                as.character(nrow(o$outliers)))
+    )
+    DT::datatable(df, rownames = FALSE, options = list(dom = "t"))
+  })
+
+  output$outlier_wells_table <- DT::renderDT({
+    o <- tryCatch(outlier_r(), error = function(e) NULL)
+    if (is.null(o) || nrow(o$outliers) == 0) {
+      return(DT::datatable(tibble(message = "No wells above the P95 threshold for this metric."),
+                           options = list(dom = "t"), rownames = FALSE))
+    }
+    df <- o$outliers %>% dplyr::transmute(`Well ID` = well_id, `Duration (d/stage)` = round(value, 2))
+    DT::datatable(df, rownames = FALSE, selection = "single",
+                  options = list(dom = "t", pageLength = 10))
+  })
+
+  output$outlier_well_detail <- renderUI({
+    o <- tryCatch(outlier_r(), error = function(e) NULL)
+    sel <- input$outlier_wells_table_rows_selected
+    if (is.null(o) || is.null(sel) || nrow(o$outliers) == 0) return(NULL)
+    row <- o$outliers[sel, ]
+    div(class = "mt-2 p-2 border-start border-warning border-3 bg-light rounded",
+      tags$strong(row$well_id),
+      tags$br(),
+      tags$span(sprintf("Duration: %.2f d/stage", row$value)),
+      tags$br(),
+      tags$strong("Possible reason: "), tags$span(row$possible_reason)
     )
   })
 

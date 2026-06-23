@@ -229,3 +229,92 @@ suggested_assumptions_table <- function(learning) {
     )
   }))
 }
+
+# ---- Outlier well summary -----------------------------------------------------
+
+#' Summarise outlier wells for one historical-wells duration metric.
+#'
+#' Flags wells whose value on `metric` sits above the `p_threshold` quantile
+#' of the uploaded/synthetic historical set, and attempts to explain why
+#' using only the columns actually present in historical_wells.csv. There is
+#' no risk-event or "reason" field in that schema, so this is a best-effort
+#' heuristic over the other recorded columns (stage overrun, contingency
+#' plugs used, cement-eval/milling time well above the typical well) -- it
+#' never asserts a specific cause (e.g. "screenout") the data can't support.
+#' Falls back to asking the user to investigate when no recorded column
+#' stands out, rather than fabricating a more specific reason.
+summarise_outlier_wells <- function(historical_wells, metric = "frac_days_per_stage", p_threshold = 0.95) {
+  stopifnot(is.data.frame(historical_wells), metric %in% names(historical_wells))
+
+  df <- historical_wells %>%
+    dplyr::filter(!is.na(.data[[metric]]), .data[[metric]] > 0)
+
+  empty_outliers <- tibble(well_id = character(), value = numeric(), possible_reason = character())
+  if (nrow(df) < 5) {
+    return(list(
+      n_wells = nrow(df), p50 = NA_real_, p90 = NA_real_, max = NA_real_,
+      threshold = NA_real_, outliers = empty_outliers,
+      note = sprintf("Only %d valid well(s) for this metric -- need >=5 to characterise outliers.", nrow(df))
+    ))
+  }
+
+  x <- df[[metric]]
+  p50 <- as.numeric(quantile(x, 0.50, na.rm = TRUE))
+  p90 <- as.numeric(quantile(x, 0.90, na.rm = TRUE))
+  threshold <- as.numeric(quantile(x, p_threshold, na.rm = TRUE))
+  max_val <- max(x, na.rm = TRUE)
+
+  outlier_rows <- df %>%
+    dplyr::filter(.data[[metric]] > threshold) %>%
+    dplyr::arrange(dplyr::desc(.data[[metric]]))
+
+  has_stages_planned <- "stages_planned" %in% names(df)
+  med_cement  <- stats::median(df$cement_eval_days, na.rm = TRUE)
+  med_milling <- stats::median(df$milling_days, na.rm = TRUE)
+
+  .factor_text <- function(row) {
+    factors <- character(0)
+    if (has_stages_planned &&
+        !is.na(row$stages_completed) && !is.na(row$stages_planned) &&
+        row$stages_completed > row$stages_planned) {
+      factors <- c(factors, sprintf("%d more stage(s) completed than planned",
+                                     row$stages_completed - row$stages_planned))
+    }
+    if (!is.na(row$contingency_plugs) && row$contingency_plugs > 0) {
+      factors <- c(factors, sprintf("%d contingency plug(s) used", row$contingency_plugs))
+    }
+    if (!is.na(row$cement_eval_days) && !is.na(med_cement) && med_cement > 0 &&
+        row$cement_eval_days > 1.5 * med_cement) {
+      factors <- c(factors, sprintf("cement evaluation took %.1fx the typical well",
+                                     row$cement_eval_days / med_cement))
+    }
+    if (!is.na(row$milling_days) && !is.na(med_milling) && med_milling > 0 &&
+        row$milling_days > 1.5 * med_milling) {
+      factors <- c(factors, sprintf("milling took %.1fx the typical well",
+                                     row$milling_days / med_milling))
+    }
+    if (length(factors) == 0) {
+      paste0("No contributing factor found in historical_wells.csv's recorded columns -- ",
+             "recommend investigating this well's field records directly (daily reports, ",
+             "screenout/intervention logs) to confirm the cause.")
+    } else {
+      paste0("Possible contributing factor(s) from the data: ", paste(factors, collapse = "; "),
+             ". Inferred from available columns, not a confirmed cause -- verify against field records.")
+    }
+  }
+
+  outliers <- outlier_rows
+  if (nrow(outliers) > 0) {
+    outliers$possible_reason <- vapply(seq_len(nrow(outliers)),
+                                        function(i) .factor_text(outliers[i, ]), character(1))
+  } else {
+    outliers$possible_reason <- character(0)
+  }
+  outliers <- outliers %>%
+    dplyr::transmute(well_id, value = .data[[metric]], possible_reason)
+
+  list(
+    n_wells = nrow(df), p50 = p50, p90 = p90, max = max_val,
+    threshold = threshold, outliers = outliers, note = NULL
+  )
+}
