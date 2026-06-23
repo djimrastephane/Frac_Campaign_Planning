@@ -2058,7 +2058,8 @@ server <- function(input, output, session) {
     if (is.null(o)) return(DT::datatable(tibble(), options = list(dom = "t")))
     df <- tibble::tibble(
       Metric = c("Wells analysed", "P50 duration", "P90 duration", "Maximum observed",
-                 sprintf("Outlier wells (>P95, %.2f d)", o$threshold)),
+                 if (is.na(o$threshold)) "Outlier wells (>P95)"
+                 else sprintf("Outlier wells (>P95, %.2f d)", o$threshold)),
       Value = c(as.character(o$n_wells),
                 if (is.na(o$p50)) "N/A" else sprintf("%.2f d", o$p50),
                 if (is.na(o$p90)) "N/A" else sprintf("%.2f d", o$p90),
