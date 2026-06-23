@@ -554,15 +554,24 @@ ui <- page_sidebar(
           DT::DTOutput("outlier_summary_table"),
           tags$hr(),
           tags$p(class = "small text-muted mb-1",
-            "Wells above the P95 threshold for this metric. Click a row to see why."),
+            "Wells above the P95 threshold for this metric, split into Watch-list ",
+            "(above P95 but still part of the normal cluster) and Extreme (above P99 ",
+            "or 2x P90). Click a row to see why."),
           DT::DTOutput("outlier_wells_table"),
-          uiOutput("outlier_well_detail")
+          uiOutput("outlier_well_detail"),
+          tags$hr(),
+          checkboxInput("exclude_outlier_wells",
+            "Exclude extreme outlier well(s) from the simulation and learning",
+            value = FALSE),
+          uiOutput("outlier_exclusion_status")
         ),
         card_footer(tags$small(class = "text-muted",
           "historical_wells.csv has no risk-event/\"reason\" field, so \"contributing factor(s)\" ",
           "is a best-effort guess from the other recorded columns (stage overrun, contingency ",
           "plugs, cement-eval/milling time well above the typical well) -- not a confirmed cause. ",
-          "When nothing stands out, investigate the well's field records directly."))
+          "When nothing stands out, investigate the well's field records directly. ",
+          "This table always shows ALL wells, including any currently excluded below -- click ",
+          "\"Run simulation\" after checking the exclude box to re-run without them."))
       )
     ),
 
@@ -1383,12 +1392,48 @@ server <- function(input, output, session) {
     tryCatch({
       # Historical file is optional: fall back to synthetic data if not supplied
       using_synthetic <- is.null(input$historical_file)
-      historical <- if (using_synthetic) {
+      historical_raw <- if (using_synthetic) {
         synthetic_historical_wells(n = 30, seed = 42)
       } else {
         load_historical_wells(input$historical_file$datapath) %>%
           validate_historical_wells()
       }
+
+      # Optional outlier exclusion (Historical Learning tab's "Outlier well
+      # summary" card): removes wells flagged "Extreme" (>P99 or >2x P90) on
+      # frac_days_per_stage from the data used downstream by BOTH the
+      # simulation (the milling_days_per_plug bootstrap pool inside
+      # simulate_campaign_detailed()) and the learning engine's distribution
+      # fits -- a single source of truth, not two datasets quietly diverging
+      # between tabs. "Watch-list" wells (>P95 but below the extreme cutoff)
+      # are still part of the normal cluster and are never auto-excluded --
+      # only shown for visibility. The outlier card itself always analyses
+      # historical_raw (see outlier_r()) so it keeps showing every flagged
+      # well, with its excluded state, regardless of this toggle.
+      excluded_well_ids <- character(0)
+      outlier_exclusion_note <- NULL
+      historical <- historical_raw
+      if (isTRUE(input$exclude_outlier_wells)) {
+        outliers_for_exclusion <- tryCatch({
+          o <- summarise_outlier_wells(historical_raw, metric = "frac_days_per_stage")$outliers
+          o[o$tier == "Extreme", , drop = FALSE]
+        }, error = function(e) tibble::tibble())
+        n_remaining <- nrow(historical_raw) - nrow(outliers_for_exclusion)
+        if (nrow(outliers_for_exclusion) == 0) {
+          outlier_exclusion_note <- "Exclude outliers is checked, but no wells are flagged as extreme outliers (>P99 or >2x P90) to exclude."
+        } else if (n_remaining < 5) {
+          outlier_exclusion_note <- sprintf(
+            "Exclude outliers is checked, but removing the %d extreme outlier well(s) would leave only %d -- below the 5-well minimum for reliable fitting/sampling, so no wells were excluded.",
+            nrow(outliers_for_exclusion), n_remaining)
+        } else {
+          excluded_well_ids <- outliers_for_exclusion$well_id
+          historical <- historical_raw %>% dplyr::filter(!well_id %in% excluded_well_ids)
+          outlier_exclusion_note <- sprintf(
+            "Excluding %d extreme outlier well(s) (%s) from the simulation and learning: %s.",
+            length(excluded_well_ids), "frac days/stage > P99 or > 2x P90", paste(excluded_well_ids, collapse = ", "))
+        }
+      }
+
       risk_library_path <- if (is.null(input$risk_library_file)) {
         file.path(
           project_root, "data_templates",
@@ -1406,12 +1451,16 @@ server <- function(input, output, session) {
         attr(historical, "input_warnings") %||% character(0),
         attr(assumptions, "input_warnings") %||% character(0)
       )
-      list(ok = TRUE, historical = historical, assumptions = assumptions,
+      list(ok = TRUE, historical = historical, historical_raw = historical_raw,
+           excluded_well_ids = excluded_well_ids, outlier_exclusion_note = outlier_exclusion_note,
+           assumptions = assumptions,
            risk_library = risk_library,
            error = NULL, using_synthetic = using_synthetic,
            warnings = input_warnings)
     }, error = function(e) {
-      list(ok = FALSE, historical = NULL, assumptions = NULL, risk_library = NULL,
+      list(ok = FALSE, historical = NULL, historical_raw = NULL,
+           excluded_well_ids = character(0), outlier_exclusion_note = NULL,
+           assumptions = NULL, risk_library = NULL,
            error = conditionMessage(e), using_synthetic = FALSE)
     })
   })
@@ -2071,24 +2120,40 @@ server <- function(input, output, session) {
   outlier_r <- reactive({
     dat <- input_data()
     req(isTRUE(dat$ok))
+    # Always analyses historical_raw (every well, unfiltered) so this card
+    # keeps showing the full picture even while the exclusion checkbox below
+    # is removing flagged wells from the simulation and learning engine --
+    # otherwise an excluded well would vanish from its own outlier table.
     tryCatch(
-      summarise_outlier_wells(dat$historical, metric = "frac_days_per_stage"),
+      summarise_outlier_wells(dat$historical_raw, metric = "frac_days_per_stage"),
       error = function(e) { warning("Outlier summary: ", conditionMessage(e)); NULL }
     )
+  })
+
+  output$outlier_exclusion_status <- renderUI({
+    dat <- tryCatch(input_data(), error = function(e) NULL)
+    if (is.null(dat) || is.null(dat$outlier_exclusion_note)) return(NULL)
+    cls <- if (length(dat$excluded_well_ids) > 0) "text-warning" else "text-muted"
+    tags$small(class = paste("d-block mt-1", cls), dat$outlier_exclusion_note)
   })
 
   output$outlier_summary_table <- DT::renderDT({
     o <- tryCatch(outlier_r(), error = function(e) NULL)
     if (is.null(o)) return(DT::datatable(tibble(), options = list(dom = "t")))
+    n_extreme <- if (nrow(o$outliers) == 0) 0L else sum(o$outliers$tier == "Extreme")
+    n_watch <- nrow(o$outliers) - n_extreme
     df <- tibble::tibble(
       Metric = c("Wells analysed", "P50 duration", "P90 duration", "Maximum observed",
-                 if (is.na(o$threshold)) "Outlier wells (>P95)"
-                 else sprintf("Outlier wells (>P95, %.2f d)", o$threshold)),
+                 if (is.na(o$threshold)) "Watch-list outliers (>P95)"
+                 else sprintf("Watch-list outliers (>P95, %.2f d)", o$threshold),
+                 if (is.na(o$extreme_threshold)) "Extreme outliers (>P99 or >2x P90)"
+                 else sprintf("Extreme outliers (>P99 or >2x P90, %.2f d)", o$extreme_threshold)),
       Value = c(as.character(o$n_wells),
                 if (is.na(o$p50)) "N/A" else sprintf("%.2f d", o$p50),
                 if (is.na(o$p90)) "N/A" else sprintf("%.2f d", o$p90),
                 if (is.na(o$max)) "N/A" else sprintf("%.2f d", o$max),
-                as.character(nrow(o$outliers)))
+                as.character(n_watch),
+                as.character(n_extreme))
     )
     DT::datatable(df, rownames = FALSE, options = list(dom = "t"))
   })
@@ -2099,9 +2164,18 @@ server <- function(input, output, session) {
       return(DT::datatable(tibble(message = "No wells above the P95 threshold for this metric."),
                            options = list(dom = "t"), rownames = FALSE))
     }
-    df <- o$outliers %>% dplyr::transmute(`Well ID` = well_id, `Duration (d/stage)` = round(value, 2))
+    dat <- tryCatch(input_data(), error = function(e) NULL)
+    excluded_ids <- if (!is.null(dat)) dat$excluded_well_ids else character(0)
+    df <- o$outliers %>%
+      dplyr::transmute(`Well ID` = well_id, `Duration (d/stage)` = round(value, 2),
+                       Tier = tier,
+                       `Excluded?` = ifelse(well_id %in% excluded_ids, "Yes", "No"))
     DT::datatable(df, rownames = FALSE, selection = "single",
-                  options = list(dom = "t", pageLength = 10))
+                  options = list(dom = "t", pageLength = 10)) %>%
+      DT::formatStyle("Tier",
+        color = DT::styleEqual(c("Extreme", "Watch-list"), c("#d62728", "#b8860b")), fontWeight = "bold") %>%
+      DT::formatStyle("Excluded?",
+        color = DT::styleEqual(c("Yes", "No"), c("#d62728", "#888888")), fontWeight = "bold")
   })
 
   output$outlier_well_detail <- renderUI({
@@ -2111,6 +2185,7 @@ server <- function(input, output, session) {
     row <- o$outliers[sel, ]
     div(class = "mt-2 p-2 border-start border-warning border-3 bg-light rounded",
       tags$strong(row$well_id),
+      tags$span(sprintf(" (%s)", row$tier), class = "text-muted"),
       tags$br(),
       tags$span(sprintf("Duration: %.2f d/stage", row$value)),
       tags$br(),

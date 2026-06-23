@@ -298,17 +298,26 @@ suggested_assumptions_table <- function(learning) {
 #' never asserts a specific cause (e.g. "screenout") the data can't support.
 #' Falls back to asking the user to investigate when no recorded column
 #' stands out, rather than fabricating a more specific reason.
+#'
+#' Flagged wells are split into two tiers, since a strict P95 cutoff alone
+#' tends to catch wells that are barely above the threshold and still part
+#' of the normal cluster:
+#'   - "Watch-list": above p_threshold (P95) but below the extreme cutoff --
+#'     shown for visibility, never auto-excluded.
+#'   - "Extreme": above P99 or above 2x P90 (whichever is higher) -- eligible
+#'     for exclusion from the duration fit.
 summarise_outlier_wells <- function(historical_wells, metric = "frac_days_per_stage", p_threshold = 0.95) {
   stopifnot(is.data.frame(historical_wells), metric %in% names(historical_wells))
 
   df <- historical_wells %>%
     dplyr::filter(!is.na(.data[[metric]]), .data[[metric]] > 0)
 
-  empty_outliers <- tibble(well_id = character(), value = numeric(), possible_reason = character())
+  empty_outliers <- tibble(well_id = character(), value = numeric(), tier = character(),
+                            possible_reason = character())
   if (nrow(df) < 5) {
     return(list(
       n_wells = nrow(df), p50 = NA_real_, p90 = NA_real_, max = NA_real_,
-      threshold = NA_real_, outliers = empty_outliers,
+      threshold = NA_real_, extreme_threshold = NA_real_, outliers = empty_outliers,
       note = sprintf("Only %d valid well(s) for this metric -- need >=5 to characterise outliers.", nrow(df))
     ))
   }
@@ -316,7 +325,9 @@ summarise_outlier_wells <- function(historical_wells, metric = "frac_days_per_st
   x <- df[[metric]]
   p50 <- as.numeric(quantile(x, 0.50, na.rm = TRUE))
   p90 <- as.numeric(quantile(x, 0.90, na.rm = TRUE))
+  p99 <- as.numeric(quantile(x, 0.99, na.rm = TRUE))
   threshold <- as.numeric(quantile(x, p_threshold, na.rm = TRUE))
+  extreme_threshold <- max(p99, 2 * p90)
   max_val <- max(x, na.rm = TRUE)
 
   outlier_rows <- df %>%
@@ -366,10 +377,13 @@ summarise_outlier_wells <- function(historical_wells, metric = "frac_days_per_st
     outliers$possible_reason <- character(0)
   }
   outliers <- outliers %>%
-    dplyr::transmute(well_id, value = .data[[metric]], possible_reason)
+    dplyr::transmute(well_id, value = .data[[metric]],
+                      tier = ifelse(value > extreme_threshold, "Extreme", "Watch-list"),
+                      possible_reason)
 
   list(
     n_wells = nrow(df), p50 = p50, p90 = p90, max = max_val,
-    threshold = threshold, outliers = outliers, note = NULL
+    threshold = threshold, extreme_threshold = extreme_threshold,
+    outliers = outliers, note = NULL
   )
 }
