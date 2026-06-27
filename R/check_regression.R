@@ -86,10 +86,15 @@ cmp <- function(a, b, what, tol = 1e-12) {
 run_args <- list(historical_wells = HISTORICAL, assumptions = ASSUMPTIONS,
                  n_wells = 30, n_iterations = 500, milling_units = 2, testing_units = 1,
                  operation_mode = "Zipper", frac_trees = 2, seed = 42)
+# The fast engine now defaults to pre_frac_scheduling = "event". This test
+# proves formula-path arithmetic is bit-identical to the archive engine, so
+# we pin formula explicitly here. check_scheduling_modes.R covers the event
+# path's correctness independently.
+fast_run_args <- c(run_args, list(pre_frac_scheduling = "formula"))
 
 cat("\n[1] Full single sim (keep_logs=TRUE) -- fast must match original\n")
 o <- do.call(orig$simulate_campaign_detailed, run_args)
-f <- do.call(fast$simulate_campaign_detailed, run_args)
+f <- do.call(fast$simulate_campaign_detailed, fast_run_args)
 cmp(o$summary,              f$summary,              "summary")
 cmp(o$resource_utilization, f$resource_utilization, "resource_utilization")
 cmp(o$well_details,         f$well_details,         "well_details")
@@ -97,7 +102,7 @@ cmp(o$risk_event_log,       f$risk_event_log,       "risk_event_log")
 
 cat("\n[2] Skip-flags path: fast(keep_logs=FALSE) $summary must equal original $summary\n")
 f2 <- do.call(fast$simulate_campaign_detailed,
-              c(run_args, list(keep_logs = FALSE, collect_well_details = FALSE)))
+              c(fast_run_args, list(keep_logs = FALSE, collect_well_details = FALSE)))
 cmp(o$summary, f2$summary, "summary (flags off)")
 cat(sprintf("  %-26s %s\n", "well_details empty?",
             if (nrow(f2$well_details) == 0) "yes (expected)" else "*** no ***"))
@@ -107,16 +112,18 @@ opt_args <- list(historical_wells = HISTORICAL, assumptions = ASSUMPTIONS, n_wel
                  scenario_grid = GRID, screen_iterations = 80, refine_iterations = 200,
                  top_n_refine = 3, seed = 123)
 oo <- do.call(orig$optimise_campaign_scenarios, opt_args)
-ff <- do.call(fast$optimise_campaign_scenarios, opt_args)
+ff <- do.call(fast$optimise_campaign_scenarios,
+              c(opt_args, list(fixed_args = list(pre_frac_scheduling = "formula"))))
 keep <- c("config_label", "p50_days", "p90_days", "idle_days", "total_mobilisation_cost")
 cmp(oo[order(oo$config_label), keep], ff[order(ff$config_label), keep], "optimiser scores")
 
 # ---- speedup -----------------------------------------------------------------
 cat("\n[4] Speedup (single core)\n")
 t_o  <- system.time(do.call(orig$simulate_campaign_detailed, run_args))[["elapsed"]]
-t_f  <- system.time(do.call(fast$simulate_campaign_detailed, run_args))[["elapsed"]]
+t_f  <- system.time(do.call(fast$simulate_campaign_detailed, fast_run_args))[["elapsed"]]
 t_oo <- system.time(do.call(orig$optimise_campaign_scenarios, opt_args))[["elapsed"]]
-t_ff <- system.time(do.call(fast$optimise_campaign_scenarios, opt_args))[["elapsed"]]
+t_ff <- system.time(do.call(fast$optimise_campaign_scenarios,
+                             c(opt_args, list(fixed_args = list(pre_frac_scheduling = "formula")))))[["elapsed"]]
 cat(sprintf("  single sim : %.2fs -> %.2fs  (%.2fx)\n", t_o, t_f, t_o / t_f))
 cat(sprintf("  optimiser  : %.2fs -> %.2fs  (%.2fx)\n", t_oo, t_ff, t_oo / t_ff))
 

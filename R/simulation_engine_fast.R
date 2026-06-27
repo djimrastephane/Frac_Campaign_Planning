@@ -1326,17 +1326,16 @@ simulate_campaign_detailed <- function(
     # does not need. Defaults preserve the original return value exactly.
     keep_logs = TRUE,            # build risk_event_log (FALSE for screening runs)
     collect_well_details = TRUE, # build per-well details (FALSE for screening runs)
-    # Pre-frac scheduling mode (dev-facing, not yet exposed in the UI):
-    #   "formula" (default) -- existing workload-accounting two-pass calc
-    #             below. Unchanged behavior; this is what check_regression.R
-    #             pins as bit-identical to the original engine.
-    #   "event"   -- routes CT/wireline/frac through schedule_pre_frac(),
-    #             a real resource-availability-vector scheduler (same pattern
-    #             as schedule_post_frac_milling() below). See
-    #             R/check_scheduling_modes.R for a side-by-side comparison;
-    #             this is NOT yet validated as a drop-in replacement, hence
-    #             the opt-in flag rather than a default-path change.
-    pre_frac_scheduling = c("formula", "event")
+    # Pre-frac scheduling mode:
+    #   "event" (default) -- real resource-availability-vector scheduler for
+    #             CT, wireline, and frac via schedule_pre_frac(). Correctly
+    #             models cross-well contention and produces the attribution
+    #             split (wireline_capacity_wait vs ct_caused_wait) that the
+    #             formula path cannot. Validated by test_schedule_pre_frac.R
+    #             (42 property checks) and check_scheduling_modes.R.
+    #   "formula" -- original workload-accounting two-pass calc. Kept for
+    #             check_regression.R (proves fast engine = archive engine).
+    pre_frac_scheduling = c("event", "formula")
 ) {
   pre_frac_scheduling <- match.arg(pre_frac_scheduling)
   if (!is.null(seed)) set.seed(seed)

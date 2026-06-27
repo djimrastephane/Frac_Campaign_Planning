@@ -1,12 +1,13 @@
 # check_scheduling_modes.R
 # -----------------------------------------------------------------------------
-# Side-by-side comparison of pre_frac_scheduling = "formula" (default,
-# workload-accounting) vs "event" (real resource-availability-vector
-# scheduler, see schedule_pre_frac() in simulation_engine_fast.R).
+# Side-by-side comparison of pre_frac_scheduling = "event" (default,
+# real resource-availability-vector scheduler) vs "formula" (original
+# workload-accounting approximation, kept for check_regression.R).
+# See schedule_pre_frac() in simulation_engine_fast.R.
 #
 # Unlike check_regression.R, this is NOT a bit-identical check -- the two
 # models are EXPECTED to diverge; that divergence is the whole point of the
-# new path. This script:
+# event path. This script:
 #   1. Runs both modes on the same seed across a small representative grid
 #      and prints the campaign-day delta per config, for human review.
 #   2. Asserts physical lower bounds that must hold under EITHER model.
