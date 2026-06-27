@@ -448,7 +448,7 @@ ui <- page_sidebar(
         card(
           full_screen = TRUE,
           card_header(
-            "Critical bottleneck",
+            uiOutput("bottleneck_card_header", inline = TRUE),
             bslib::tooltip(
               tags$span(class = "text-muted ms-1", style = "cursor: help;", "(?)"),
               "Why: the limiting resource and its measured queue-delay contribution (not raw utilization alone). ",
@@ -3258,6 +3258,16 @@ server <- function(input, output, session) {
   # estimate (see R/simulation_engine_fast.R:2453-2489) that could name a
   # different resource, with a different saving, than this same simulation's
   # constraint cascade or Decision Support recommendation.
+  output$bottleneck_card_header <- renderUI({
+    rec <- tryCatch(rec_v2_r(), error = function(e) NULL)
+    label <- if (is.null(rec)) "Bottleneck" else switch(rec$status,
+      Critical = "Critical bottleneck",
+      Moderate = "Moderate bottleneck",
+      Minor    = "Minor bottleneck",
+      "No significant bottleneck"
+    )
+    span(label)
+  })
   output$bottleneck_narrative <- renderUI({
     rec <- tryCatch(rec_v2_r(), error = function(e) NULL)
     if (is.null(rec)) return(p("No bottleneck identified."))

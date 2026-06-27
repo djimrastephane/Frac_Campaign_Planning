@@ -87,8 +87,8 @@ generate_narrative <- function(sim_result, sim_args = NULL, target_days = NULL, 
             .cap1(tolower(rec$recommendation)), rec$expected_reduction_days,
             .nf_usd(rec$expected_value), 100 * rec$confidence)
   else
-    sprintf("The current configuration is already balanced; adding a %s is not value-positive at present rates",
-            tolower(rec$bottleneck))
+    sprintf("Adding one %s is estimated to save ~%.0f days, but does not generate sufficient net value at current rates (%s); the current configuration is preferred.",
+            tolower(rec$bottleneck), rec$expected_reduction_days, .nf_usd(rec$expected_value))
 
   # Target / budget odds.
   tgt <- if (!is.null(target_days) && !is.na(um$prob_finish_by_target))
