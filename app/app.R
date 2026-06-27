@@ -868,6 +868,19 @@ ui <- page_sidebar(
             textInput("scenario_label", NULL, placeholder = "Optional label (default: config summary)"),
             actionButton("save_scenario", "Save scenario",
                          class = "btn-sm btn-primary", icon = icon("bookmark"))
+          ),
+          tags$hr(class = "my-2"),
+          p(class = "text-muted small mb-1",
+            "Export the current library to a .json file to save it across sessions, ",
+            "or import a previously exported file to restore it (replaces the current library)."),
+          layout_columns(
+            col_widths = c(6, 6),
+            fileInput("upload_scenarios", NULL, accept = ".json",
+                      buttonLabel = "Import .json", placeholder = "No file selected"),
+            div(style = "padding-top: 6px;",
+                downloadButton("download_scenarios", "Export library (.json)",
+                               class = "btn-sm btn-outline-primary w-100",
+                               icon = icon("download")))
           )
         )
       ),
@@ -2825,6 +2838,32 @@ server <- function(input, output, session) {
     }
   })
   observeEvent(input$clear_scenarios, { scenario_library_rv(list()) })
+
+  output$download_scenarios <- downloadHandler(
+    filename = function() paste0("scenario_library_", Sys.Date(), ".json"),
+    content = function(file) {
+      writeLines(scenario_library_to_json(scenario_library_rv()), file)
+    }
+  )
+
+  observeEvent(input$upload_scenarios, {
+    req(input$upload_scenarios)
+    tryCatch({
+      json_str <- paste(readLines(input$upload_scenarios$datapath, warn = FALSE), collapse = "\n")
+      imported <- scenario_library_from_json(json_str)
+      scenario_library_rv(imported)
+      showNotification(
+        sprintf("Imported %d scenario(s).", length(imported)),
+        type = "message", duration = 4
+      )
+    }, error = function(e) {
+      showNotification(
+        paste("Import failed:", conditionMessage(e)),
+        type = "error", duration = 8
+      )
+    })
+  })
+
   output$scenario_library_table <- DT::renderDT({
     df <- scenario_library_to_df(scenario_library_rv())
     if (nrow(df) == 0) return(DT::datatable(tibble(), options = list(dom = "t")))

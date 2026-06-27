@@ -82,6 +82,41 @@ remove_scenario_record <- function(current, id) {
   Filter(function(r) !identical(r$id, id), current)
 }
 
+# Serialises the scenario library to a JSON string for export.
+scenario_library_to_json <- function(records) {
+  jsonlite::toJSON(records, auto_unbox = TRUE, POSIXt = "ISO8601", digits = 8, null = "null")
+}
+
+# Deserialises a JSON string back to a list of scenario records.
+# Validates required fields and restores R types that JSON does not distinguish.
+scenario_library_from_json <- function(json_str) {
+  records <- tryCatch(
+    jsonlite::fromJSON(json_str, simplifyDataFrame = FALSE, simplifyVector = TRUE),
+    error = function(e) stop("Could not parse file: ", conditionMessage(e))
+  )
+  if (!is.list(records) || length(records) == 0)
+    stop("File does not contain any scenario records.")
+  required <- c("id", "label", "operation_mode", "p50_days", "p90_days", "duration")
+  lapply(seq_along(records), function(i) {
+    r <- records[[i]]
+    missing <- setdiff(required, names(r))
+    if (length(missing) > 0)
+      stop(sprintf("Record %d is missing fields: %s", i, paste(missing, collapse = ", ")))
+    r$duration               <- as.numeric(r$duration)
+    r$p50_days               <- as.numeric(r$p50_days)
+    r$p90_days               <- as.numeric(r$p90_days)
+    r$readiness_score        <- as.numeric(r$readiness_score)
+    r$non_frac_p90_utilization <- as.numeric(r$non_frac_p90_utilization)
+    r$spread_rate_per_day    <- as.numeric(r$spread_rate_per_day)
+    if (is.character(r$timestamp))
+      r$timestamp <- tryCatch(
+        as.POSIXct(r$timestamp, format = "%Y-%m-%dT%H:%M:%OS", tz = "UTC"),
+        error = function(e) Sys.time()
+      )
+    r
+  })
+}
+
 # Tidies the saved records into a comparison table (one row per record).
 scenario_library_to_df <- function(records) {
   if (length(records) == 0) return(tibble())
