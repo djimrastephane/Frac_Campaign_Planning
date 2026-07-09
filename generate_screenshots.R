@@ -121,7 +121,10 @@ bayes <- run_bayesian_update(HISTORICAL, NEW_WELLS,
                              assumptions = ASSUMPTIONS, risk_obs = risk_obs)
 
 p_dur  <- plot_bayesian_duration_update(bayes, HISTORICAL, NEW_WELLS)
-p_risk <- plot_bayesian_risk_update(bayes$risk_update)
+# plot_bayesian_risk_update() expects assess_risk_update()'s output (adds
+# observed_freq, sample_caveat, etc.), never the raw risk_update -- matches
+# how app.R always calls it (see render_risk_scope_section() in app/app.R).
+p_risk <- plot_bayesian_risk_update(assess_risk_update(bayes$risk_update))
 
 # Build a narrative text panel mirroring the new bayes_status UI output
 .bayes_narrative_panel <- function(br) {
