@@ -75,7 +75,7 @@ The model tracks five resources independently. Each has its own unit count, work
   - **Constraint-relief cascade**: ranked list of which resource to relieve next and the cumulative days each successive fix recovers
   - **Recommendation robustness check**: one-at-a-time (OAT) ±15% sweep over every planning assumption; reports whether the recommendation flips under any perturbation; combined best-case / stress-case bundle shows the full planning envelope
   - **Assumption sensitivity tornado chart**: diverging horizontal bar chart showing the P50 schedule impact of each assumption swing, ranked by magnitude, coloured by direction (saves days / adds days)
-  - **Scenario library**: save any run configuration with a label, compare saved scenarios side-by-side in a summary table
+  - **Scenario library**: save any run configuration with a label, compare saved scenarios side-by-side in a summary table; export the library to a .json file and re-import it in a future session to restore all saved scenarios including duration distributions
 - Investment ranking: net benefit and ROI (days per $1M) of each proposed resource addition
 - **Constraint cascade analyser** (Optimiser tab): greedy sequential bottleneck resolution — answers what limits you now, what limits you after you fix it, and where each additional dollar generates the most schedule return, with a waterfall chart of P50 duration after each fix
 - **Scenario optimiser**: grid search over resource configurations, common-random-number screening, Pareto frontier of duration vs total mobilisation cost, one-click apply of the recommended scenario
@@ -472,7 +472,7 @@ Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
 | Tab | Contents |
 |---|---|
 | **Overview** | KPI value boxes (best option, P50/P90, zipper saving, readiness + drivers, bottleneck, idle cost), investment ranking, S-curve, distribution, traffic lights |
-| **Decision support** | Management summary narrative, recommendation panel with "Verify by re-simulation", risk prediction table, uncertainty (P-values) table, constraint-relief cascade, robustness check, sensitivity tornado, scenario library |
+| **Decision support** | Management summary narrative, recommendation panel with "Verify by re-simulation", risk prediction table, uncertainty (P-values) table, constraint-relief cascade, robustness check, sensitivity tornado, scenario library (with export/import for cross-session persistence) |
 | **Historical Learning** | Automatic distribution fitting (Normal / Lognormal / Gamma / Weibull) to FracDaysPerStage and MillingDaysPerPlug; AIC/BIC/KS ranking; density overlay; Q-Q plot; suggested assumptions table |
 | **Sensitivity** | OAT ±20% sweep (timing, scalars), ±50% (risk probabilities), ±1 unit (resources); tornado ranked by P50 swing; Conventional vs Zipper mode comparison grouped bar |
 | **Bayesian Update** | Upload new completed-well observations; Normal-Normal conjugate duration update with prior vs posterior density overlay; Beta-Binomial risk probability update; merged dataset fed back to next simulation |
@@ -702,7 +702,7 @@ Scenario management, historical campaign backtesting (predicted vs actual), port
 
 # Limitations
 
-- Operational planning model: workload-based aggregation. The post-frac milling/testing scheduler is discrete; the frac path and pre-frac scheduling are workload-based approximations.
+- Operational planning model: workload-based aggregation. Both the pre-frac phase (CT/wireline/frac via `schedule_pre_frac()`) and the post-frac phase (milling/testing) use real resource-availability-vector schedulers; the frac-path critical-path total is still a workload-sum rather than a full stage-by-stage discrete-event simulation.
 - Not a hydraulic fracture propagation, reservoir, or production model.
 - Risk consequences are deterministic per event (library defaults); delays are triangular-sampled.
 - CT spare capacity assumes uniform availability over the campaign window (no within-campaign sequencing).
