@@ -8,6 +8,21 @@ The user does not need to edit R code. The application reads CSV input files, ru
 
 ---
 
+# Current Validation Status
+
+Checked at commit `67b6a1c` (tag [`v16-stable-checkpoint`](../../tree/v16-stable-checkpoint)), 2026-07-09. Re-run these yourself with the commands shown — none of this is asserted from memory.
+
+| Check | Command | Result |
+|---|---|---|
+| Engine regression (fast engine bit-identical to archive engine) | `Rscript R/check_regression.R` | ✅ PASS — summary / resource_utilization / well_details / risk_event_log / optimiser scores all IDENTICAL |
+| Property-check test suite | `for f in R/test_*.R; do Rscript "$f"; done` | ✅ 15 / 15 scripts PASS |
+| Dependency check (DESCRIPTION Imports) | `source("run_local.R")` / manual check against `installed.packages()` | ✅ 19 / 19 required packages present, 0 missing |
+| App build (UI tree + server function construct without error) | Parse `app/app.R` excluding the final `shinyApp()` call and `eval()` every expression | ✅ UI is a valid `bslib_page`; `server` is a function |
+
+Feature work is intentionally frozen at this checkpoint pending an architecture-cleanup pass (see the open PR tracking that work) — this table should stay green across that refactor, since none of the planned changes touch simulation logic.
+
+---
+
 # Project Overview
 
 Frac campaigns are complex operations involving multiple wells, multiple pads, shared resources, operational uncertainty, and competing schedules.
