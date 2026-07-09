@@ -743,7 +743,7 @@ build_zipper_benefit_breakdown <- function(summary, zipper_efficiency = 0.75) {
   post_frac_r  <- total_r - (efficiency_r + wl_overlap_r + ct_path_r)
 
   tibble::tibble(
-    component   = c("Frac fleet efficiency (zipper ×0.75)",
+    component   = c(sprintf("Frac fleet efficiency (zipper ×%.2f)", zipper_efficiency),
                     "Wireline–frac overlap (parallel in zipper)",
                     "CT path offset (CT adds in zipper)",
                     "Post-frac & other differences",

@@ -40,13 +40,16 @@ library(rhandsontable)
 # its entire lifetime, which compounds fast under concurrent users.
 future::plan(future::multisession, workers = 2)
 
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
 if (basename(getwd()) == "app") {
   project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
 } else {
   project_root <- normalizePath(getwd(), mustWork = FALSE)
 }
+
+# Single source of truth for %||% and DEFAULT_DAY_RATES -- see R/constants.R
+# for why the scattered function-default rate literals elsewhere are left
+# as-is (guarded by R/test_default_day_rates.R) rather than rewritten here.
+source(file.path(project_root, "R", "constants.R"))
 
 source(file.path(project_root, "R", "load_inputs.R"))
 source(file.path(project_root, "R", "validate_inputs.R"))
@@ -157,6 +160,34 @@ find_param_cell_errors <- function(df) {
 # without a "missing column" error -- a round-trip load_master_assumptions()
 # wouldn't otherwise tolerate, since it looks for the exact original header
 # text, not the post-clean_names() name.
+# CSV/formula-injection guard: a text cell that starts with =, +, -, or @ is
+# interpreted as a formula by Excel/Sheets/LibreOffice when the exported CSV
+# is opened -- e.g. a Risk Editor "variable" or "simulation_impact" cell
+# typed as "=cmd|'/c calc'!A1" or "=SUM(1,1)". Prefixing such cells with a
+# leading apostrophe forces spreadsheet apps to treat them as literal text
+# (the apostrophe itself is not written into the cell value on open) without
+# altering what a human or CSV-reading script sees.
+# Deliberately narrow: only touches character columns, and only cells that
+# start with one of the four trigger characters -- ordinary values (numbers,
+# dates, plain text) pass through byte-for-byte.
+sanitize_csv_cell <- function(x) {
+  if (!is.character(x)) return(x)
+  needs_prefix <- !is.na(x) & grepl("^[=+@-]", x)
+  x[needs_prefix] <- paste0("'", x[needs_prefix])
+  x
+}
+
+# Applies sanitize_csv_cell() to the named columns of `df` that are actually
+# present -- callers pass only the free-text columns a user could have typed
+# into (e.g. "variable", "simulation_impact"), never locked-name/lookup
+# columns, so a sanitized round-trip upload can't break the engine's
+# exact-name matching for Campaign Setup / Base Operation rows.
+sanitize_csv_text_cols <- function(df, cols) {
+  present <- intersect(cols, names(df))
+  for (col in present) df[[col]] <- sanitize_csv_cell(df[[col]])
+  df
+}
+
 assumptions_to_template_headers <- function(df) {
   rename_map <- c(
     category = "Category", variable = "Variable / Risk Event", type = "Type",
@@ -383,11 +414,11 @@ ui <- page_sidebar(
       ),
       accordion_panel(
         "Daily costs",
-        numericInput("frac_fleet_cost", "Frac fleet $/day", value = 250000, min = 0, step = 10000),
-        numericInput("wireline_cost", "Wireline $/day", value = 15000, min = 0, step = 1000),
-        numericInput("ct_cost", "CT / cleanout $/day", value = 25000, min = 0, step = 1000),
-        numericInput("milling_cost", "Milling $/day", value = 18000, min = 0, step = 1000),
-        numericInput("testing_unit_cost", "Testing unit $/day", value = 12000, min = 0, step = 500)
+        numericInput("frac_fleet_cost", "Frac fleet $/day", value = DEFAULT_DAY_RATES$frac_fleet, min = 0, step = 10000),
+        numericInput("wireline_cost", "Wireline $/day", value = DEFAULT_DAY_RATES$wireline, min = 0, step = 1000),
+        numericInput("ct_cost", "CT / cleanout $/day", value = DEFAULT_DAY_RATES$ct, min = 0, step = 1000),
+        numericInput("milling_cost", "Milling $/day", value = DEFAULT_DAY_RATES$milling, min = 0, step = 1000),
+        numericInput("testing_unit_cost", "Testing unit $/day", value = DEFAULT_DAY_RATES$testing_unit, min = 0, step = 500)
       )
     )
   ),
@@ -519,12 +550,17 @@ ui <- page_sidebar(
           card_header("Distribution fitting results — AIC / BIC / KS ranking"),
           card_body(DT::DTOutput("learning_fit_table")),
           card_footer(tags$small(class = "text-muted",
-            "Rank = lowest AIC among the 4 candidates, not a goodness-of-fit claim. ",
-            "Fit quality (Good / Moderate / Poor) comes from the KS p-value: a low p-value means the ",
-            "Kolmogorov-Smirnov test rejects that distribution as the data's true generator — common for ",
-            "operational data with a heavier tail than Normal/Lognormal/Gamma/Weibull can capture. ",
-            "Even when rank 1's fit quality is Moderate or Poor, it's still the most suitable candidate ",
-            "evaluated — not a confirmed correct distribution."))
+            "Rank = lowest AIC among the 4 candidates — this is the primary selection logic, not a ",
+            "goodness-of-fit claim. ",
+            "Fit quality (Good / Moderate / Poor) is an ", tags$b("indicative"), " check from the KS p-value: ",
+            "a low p-value means the Kolmogorov-Smirnov test rejects that distribution as the data's true ",
+            "generator — common for operational data with a heavier tail than Normal/Lognormal/Gamma/Weibull ",
+            "can capture. ",
+            "This KS result is approximate, not a formal test: its parameters were fitted from the same ",
+            "data being tested, which biases the p-value toward passing. Treat Fit quality as a rough ",
+            "signal alongside the AIC ranking, not proof the selected distribution is the data's true ",
+            "generator. Even when rank 1's fit quality is Moderate or Poor, it's still the most suitable ",
+            "AIC-ranked candidate evaluated — not a confirmed correct distribution."))
         )
       ),
       layout_columns(
@@ -539,10 +575,11 @@ ui <- page_sidebar(
           card_header("Suggested planning assumptions (auto-generated)"),
           card_body(DT::DTOutput("learning_suggested_table")),
           card_footer(tags$small(class = "text-muted",
-            "Min / Mode / Max derived from P5 / mode / P95 of the selected planning distribution. ",
+            "Min / Mode / Max derived from P5 / mode / P95 of the selected (AIC-ranked) planning distribution. ",
             "See the \"Note\" column: when Fit quality is Moderate or Poor, no tested distribution ",
             "perfectly matches the historical data -- the one shown is still the most suitable candidate ",
-            "evaluated, just not a precise tail-risk model. ",
+            "evaluated, just not a precise tail-risk model. Fit quality is an indicative KS check only ",
+            "(parameters were fitted from the same data), not a guarantee this is the true distribution. ",
             "Use these to populate the min_days / most_likely_days / max_days columns ",
             "in master_risks_assumptions.csv for stage-duration rows."))
         )
@@ -1288,7 +1325,9 @@ server <- function(input, output, session) {
   output$download_params_table <- downloadHandler(
     filename = function() "parameters.csv",
     content = function(file) {
-      write.csv(assumptions_to_template_headers(current_locked_rows()), file, row.names = FALSE)
+      df <- current_locked_rows() %>%
+        sanitize_csv_text_cols(c("simulation_impact"))
+      write.csv(assumptions_to_template_headers(df), file, row.names = FALSE)
     }
   )
 
@@ -1397,7 +1436,9 @@ server <- function(input, output, session) {
   output$download_risk_rows <- downloadHandler(
     filename = function() "risk_rows.csv",
     content = function(file) {
-      write.csv(assumptions_to_template_headers(current_risk_rows()), file, row.names = FALSE)
+      df <- current_risk_rows() %>%
+        sanitize_csv_text_cols(c("variable", "simulation_impact"))
+      write.csv(assumptions_to_template_headers(df), file, row.names = FALSE)
     }
   )
 
@@ -2923,7 +2964,11 @@ server <- function(input, output, session) {
 
   zipper_breakdown_r <- reactive({
     req(sim_results())
-    build_zipper_benefit_breakdown(sim_results()$summary)
+    # Use the zipper_efficiency actually used for this run's Zipper pass
+    # (not the function's 0.75 default) so the card's label/percentage can
+    # never disagree with the sidebar's Zipper execution factor slider.
+    zip_eff <- sim_results()$args_by_mode[["Zipper"]]$zipper_efficiency %||% 0.75
+    build_zipper_benefit_breakdown(sim_results()$summary, zipper_efficiency = zip_eff)
   })
 
   # Constraint cascade analyser: runs separately on demand (not auto on sim run)
@@ -3979,7 +4024,9 @@ server <- function(input, output, session) {
       }
       write_csv(sim_results()$risk_event_log, file.path(tmpdir, "simulation_risk_event_log.csv"))
       write_csv(sim_results()$resource_utilization, file.path(tmpdir, "resource_utilization.csv"))
-      write_csv(sim_results()$assumptions_used, file.path(tmpdir, "assumptions_used.csv"))
+      write_csv(sim_results()$assumptions_used %>%
+                  sanitize_csv_text_cols(c("variable", "simulation_impact")),
+                file.path(tmpdir, "assumptions_used.csv"))
       write_csv(build_executive_summary(sim_results()$summary, sim_results()$risk_event_log, sim_results()$resource_utilization), file.path(tmpdir, "executive_summary.csv"))
       write_csv(kpis_r(), file.path(tmpdir, "executive_kpis.csv"))
       write_csv(delay_r(), file.path(tmpdir, "delay_contributors.csv"))

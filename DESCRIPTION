@@ -1,0 +1,39 @@
+Package: fraccampaignsimulator
+Type: Project
+Title: Frac Campaign Planning Simulator
+Version: 16.0.0
+Description: Monte Carlo simulator for hydraulic fracturing campaign
+    planning (conventional vs. zipper execution, resource queue
+    simulation, historical learning, Bayesian updating, decision
+    support). Not a distributable R package -- this DESCRIPTION exists
+    solely as the single source of truth for dependencies, consumed by
+    run_local.R and (optionally) renv.
+License: file LICENSE
+Encoding: UTF-8
+Imports:
+    shiny,
+    bslib,
+    readr,
+    dplyr,
+    ggplot2,
+    DT,
+    janitor,
+    purrr,
+    stringr,
+    tibble,
+    tidyr,
+    future,
+    promises,
+    rhandsontable,
+    MASS,
+    jsonlite,
+    htmlwidgets,
+    htmltools,
+    scales
+Suggests:
+    gridExtra,
+    cowplot,
+    qpdf,
+    pdftools,
+    zip,
+    future.apply

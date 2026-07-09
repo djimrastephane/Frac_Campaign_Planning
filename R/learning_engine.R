@@ -49,22 +49,36 @@ FIT_QUALITY_THRESHOLDS <- list(good = 0.10, moderate = 0.01)
 
 #' Plain-language note for a given fit quality tier. Never claims the
 #' selected distribution is "correct" -- only that it's the most suitable
-#' of the candidates actually evaluated.
+#' of the candidates actually evaluated (by AIC).
+#'
+#' The KS p-value here is an INDICATIVE check, not a formal goodness-of-fit
+#' test: the distribution's parameters were fitted (MLE) from the same data
+#' the KS test is run against, which biases the p-value upward (toward
+#' "passing") relative to a true KS test against known parameters. The
+#' wording below is deliberately hedged for that reason -- it never asserts
+#' the selected distribution "fits well" or is confirmed, only that it is
+#' the most suitable AIC-ranked candidate, with the KS result offered as a
+#' rough secondary signal.
 .fit_quality_note <- function(quality, ks_pvalue) {
   if (is.na(quality)) return("Fit quality unavailable.")
   if (quality == "Good") {
-    return(sprintf("Selected distribution fits the historical data well (KS p=%.3f).", ks_pvalue))
+    return(sprintf(
+      paste0("Indicative fit check: the AIC-ranked distribution appears consistent with the historical ",
+             "data (KS p=%.3f). This KS result is approximate -- its parameters were fitted from the ",
+             "same data -- so treat it as a supporting signal, not confirmation this is the true ",
+             "data-generating distribution."),
+      ks_pvalue))
   }
   if (quality == "Moderate") {
     return(paste0(
-      sprintf("No tested distribution perfectly matches the historical data (KS p=%.3f). ", ks_pvalue),
-      "The selected distribution is the most suitable candidate for planning ",
+      sprintf("No tested distribution closely matches the historical data on this indicative KS check (p=%.3f). ", ks_pvalue),
+      "The selected distribution is still the most suitable AIC-ranked candidate for planning ",
       "and simulation among those evaluated."))
   }
   # Poor
   paste0(
-    sprintf("None of the tested distributions adequately describe the historical data (KS p=%.3f). ", ks_pvalue),
-    "The selected distribution is still the most suitable candidate evaluated, but treat the ",
+    sprintf("None of the tested distributions describe the historical data well on this indicative KS check (p=%.3f). ", ks_pvalue),
+    "The selected distribution is still the most suitable AIC-ranked candidate evaluated, but treat the ",
     "suggested planning range with extra caution and consider gathering more historical data.")
 }
 
