@@ -1,8 +1,10 @@
 # test_risk_uncertainty.R
 # Property checks for risk_uncertainty.R (no bit-identity oracle for net-new
 # code, so we assert invariants instead). Run:  Rscript test_risk_uncertainty.R
-ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
-suppressPackageStartupMessages({ source(ENGINE); source("risk_library_engine.R"); source("risk_uncertainty.R") })
+ENGINE_FILES <- if (file.exists("engine_core.R")) {
+  c("engine_core.R", "summaries.R", "report_pdf.R", "optimiser_cascade.R")
+} else "archive/simulation_engine.R"
+suppressPackageStartupMessages({ for (.ef in ENGINE_FILES) source(.ef); source("risk_library_engine.R"); source("risk_uncertainty.R") })
 
 ASSUMPTIONS <- dplyr::bind_rows(
   tibble::tribble(

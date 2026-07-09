@@ -3,7 +3,7 @@
 # Side-by-side comparison of pre_frac_scheduling = "event" (default,
 # real resource-availability-vector scheduler) vs "formula" (original
 # workload-accounting approximation, kept for check_regression.R).
-# See schedule_pre_frac() in simulation_engine_fast.R.
+# See schedule_pre_frac() in engine_core.R.
 #
 # Unlike check_regression.R, this is NOT a bit-identical check -- the two
 # models are EXPECTED to diverge; that divergence is the whole point of the
@@ -17,7 +17,10 @@
 # -----------------------------------------------------------------------------
 
 suppressPackageStartupMessages({
-  source("simulation_engine_fast.R")
+  source("engine_core.R")
+  source("summaries.R")
+  source("report_pdf.R")
+  source("optimiser_cascade.R")
   source("risk_library_engine.R")
 })
 

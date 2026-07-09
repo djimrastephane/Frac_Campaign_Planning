@@ -7,7 +7,10 @@
 # draws (each call still does its own internal set.seed()).
 # Run: Rscript test_compare_both_parallel.R
 suppressPackageStartupMessages(library(dplyr))
-source("simulation_engine_fast.R")
+source("engine_core.R")
+source("summaries.R")
+source("report_pdf.R")
+source("optimiser_cascade.R")
 source("risk_library_engine.R")
 source("optimiser_parallel.R")
 source("load_inputs.R")

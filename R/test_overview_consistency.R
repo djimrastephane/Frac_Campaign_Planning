@@ -19,9 +19,12 @@
 #     the colour, and the named threshold list is asserted to match the
 #     case_when() cutoffs (so they can't silently drift apart).
 
-ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
+ENGINE_FILES <- if (file.exists("engine_core.R")) {
+  c("engine_core.R", "summaries.R", "report_pdf.R", "optimiser_cascade.R")
+} else "archive/simulation_engine.R"
 suppressPackageStartupMessages({
-  source(ENGINE); source("risk_library_engine.R"); source("bottleneck_explain.R")
+  for (.ef in ENGINE_FILES) source(.ef)
+  source("risk_library_engine.R"); source("bottleneck_explain.R")
   source("recommendations.R"); source("load_inputs.R"); source("validate_inputs.R")
 })
 

@@ -137,7 +137,7 @@ bayesian_update_risks <- function(assumptions, risk_obs, prior_strength = 20) {
     filter(!is.na(probability), tolower(type) == "risk") %>%
     mutate(prior_prob = as.numeric(probability))
   # scope (stage/well/campaign) drives which opportunities are comparable --
-  # same convention as simulation_engine_fast.R: default to "well" when the
+  # same convention as engine_core.R: default to "well" when the
   # column is missing or blank.
   if ("scope" %in% names(risk_rows)) {
     risk_rows$scope <- tolower(trimws(risk_rows$scope))

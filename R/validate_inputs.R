@@ -4,7 +4,7 @@
 # plus probability range checks for risk rows.
 # Version 13: reject non-numeric values in historical_wells' numeric columns
 # up front (mirrors strict_as_numeric()'s diagnostics in
-# simulation_engine_fast.R, kept as a local copy so this validation file has
+# engine_core.R, kept as a local copy so this validation file has
 # no dependency on the engine). Without this, a stray text value silently
 # turns the whole column character, and `df$frac_days_per_stage > 0` below
 # does a string comparison instead of erroring -- producing a wrong

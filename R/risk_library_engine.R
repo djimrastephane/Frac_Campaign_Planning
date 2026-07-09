@@ -33,7 +33,7 @@ compute_adjusted_risk_probability <- function(probability, scope, risk_multiplie
 
 # Normalised scope vector for a data.frame's `scope` column: missing column,
 # NA, or blank all default to "well". Shared by build_risk_table() below and
-# simulation_engine_fast.R's assumptions_used construction, so the audit
+# engine_core.R's assumptions_used construction, so the audit
 # column and the probability actually used to draw risk occurrences can
 # never derive scope two different ways.
 resolve_risk_scope <- function(df) {

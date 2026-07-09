@@ -54,7 +54,13 @@ source(file.path(project_root, "R", "constants.R"))
 source(file.path(project_root, "R", "load_inputs.R"))
 source(file.path(project_root, "R", "validate_inputs.R"))
 source(file.path(project_root, "R", "validate_risk_consequence_library.R"))
-source(file.path(project_root, "R", "simulation_engine_fast.R"))
+# Engine split into 4 files (see docs/architecture_cleanup_plan.md) -- must be
+# sourced in this order: engine_core.R defines simulate_campaign_detailed()
+# and everything summaries.R/report_pdf.R/optimiser_cascade.R call into.
+source(file.path(project_root, "R", "engine_core.R"))
+source(file.path(project_root, "R", "summaries.R"))
+source(file.path(project_root, "R", "report_pdf.R"))
+source(file.path(project_root, "R", "optimiser_cascade.R"))
 source(file.path(project_root, "R", "risk_library_engine.R"))
 source(file.path(project_root, "R", "optimiser_parallel.R"))
 source(file.path(project_root, "R", "risk_uncertainty.R"))
@@ -1163,10 +1169,10 @@ ui <- page_sidebar(
                 tags$td(tags$code("master_risks_assumptions.csv"))),
               tags$tr(tags$td("Change activity-to-resource mapping"),
                 tags$td("Edit resource column + update RESOURCE_CLASS_CONFIG"),
-                tags$td(tags$code("WORKFLOW_CONFIG in simulation_engine_fast.R"))),
+                tags$td(tags$code("WORKFLOW_CONFIG in R/engine_core.R"))),
               tags$tr(tags$td("Add a new activity to the sequence"),
                 tags$td("Add row to WORKFLOW_CONFIG + update workload formula"),
-                tags$td(tags$code("simulation_engine_fast.R"))),
+                tags$td(tags$code("R/engine_core.R"))),
               tags$tr(tags$td("Custom sequence from file"),
                 tags$td("Place workflow_config.csv alongside assumptions CSV"),
                 tags$td(tags$code("workflow_config.csv (see template)")))
@@ -1626,7 +1632,10 @@ server <- function(input, output, session) {
         # multisession workers start as fresh R processes -- explicitly
         # source the engine files rather than relying on automatic global
         # detection to find every transitively-called helper function.
-        source(file.path(project_root, "R", "simulation_engine_fast.R"))
+        source(file.path(project_root, "R", "engine_core.R"))
+        source(file.path(project_root, "R", "summaries.R"))
+        source(file.path(project_root, "R", "report_pdf.R"))
+        source(file.path(project_root, "R", "optimiser_cascade.R"))
         source(file.path(project_root, "R", "risk_library_engine.R"))
         source(file.path(project_root, "R", "optimiser_parallel.R"))
 
@@ -3120,7 +3129,7 @@ server <- function(input, output, session) {
     idle_days <- mean(sim_results()$summary$total_wireline_readiness_delay_days, na.rm = TRUE)
 
     # Attribution split (event mode only -- see schedule_pre_frac() in
-    # simulation_engine_fast.R): how much of the idle-days figure above is
+    # R/engine_core.R): how much of the idle-days figure above is
     # genuinely wireline capacity vs CT gating wireline's start. Without
     # this, a slow CT unit shows up entirely as "waiting on wireline" even
     # when wireline itself has ample units -- mean(..., na.rm=TRUE) on the
@@ -3300,7 +3309,7 @@ server <- function(input, output, session) {
   # Decision Support tab's Recommendation card renders -- instead of the
   # separate build_bottleneck_narrative()/build_resource_recommendations()
   # path, whose "days recoverable" was an undisclosed workload/units screening
-  # estimate (see R/simulation_engine_fast.R:2453-2489) that could name a
+  # estimate (see R/summaries.R:496-501) that could name a
   # different resource, with a different saving, than this same simulation's
   # constraint cascade or Decision Support recommendation.
   output$bottleneck_card_header <- renderUI({
