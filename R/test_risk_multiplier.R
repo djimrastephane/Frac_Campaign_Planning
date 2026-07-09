@@ -3,7 +3,10 @@
 # per-stage probability BEFORE compounding across stages, not the already-
 # compounded per-well probability (the bug this fixes). Run: Rscript test_risk_multiplier.R
 suppressPackageStartupMessages({
-  source("simulation_engine_fast.R")
+  source("engine_core.R")
+  source("summaries.R")
+  source("report_pdf.R")
+  source("optimiser_cascade.R")
   source("risk_library_engine.R")
 })
 

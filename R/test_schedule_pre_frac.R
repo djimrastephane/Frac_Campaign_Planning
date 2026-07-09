@@ -1,10 +1,12 @@
 # test_schedule_pre_frac.R
 # Property checks for schedule_pre_frac() (event-mode pre-frac scheduler,
-# R/simulation_engine_fast.R). Tests the scheduler in isolation against
+# R/engine_core.R). Tests the scheduler in isolation against
 # synthetic well-level workloads -- no need to run the full Monte Carlo loop.
 # Run: Rscript test_schedule_pre_frac.R
-ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
-suppressPackageStartupMessages({ source(ENGINE) })
+ENGINE_FILES <- if (file.exists("engine_core.R")) {
+  c("engine_core.R", "summaries.R", "report_pdf.R", "optimiser_cascade.R")
+} else "archive/simulation_engine.R"
+suppressPackageStartupMessages({ for (.ef in ENGINE_FILES) source(.ef) })
 
 ok <- TRUE
 chk <- function(c, m) { cat(sprintf("  [%s] %s\n", if (isTRUE(c)) "PASS" else "FAIL", m)); ok <<- ok && isTRUE(c) }

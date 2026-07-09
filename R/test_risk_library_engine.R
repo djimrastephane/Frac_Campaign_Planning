@@ -4,7 +4,10 @@
 suppressPackageStartupMessages({
   source("load_inputs.R")
   source("validate_risk_consequence_library.R")
-  source("simulation_engine_fast.R")
+  source("engine_core.R")
+  source("summaries.R")
+  source("report_pdf.R")
+  source("optimiser_cascade.R")
   source("risk_library_engine.R")
 })
 

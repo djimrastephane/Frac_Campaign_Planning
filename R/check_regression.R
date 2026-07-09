@@ -1,10 +1,13 @@
 # check_regression.R
 # -----------------------------------------------------------------------------
-# Proves simulation_engine_fast.R is numerically identical to the original
-# archive/simulation_engine.R, then reports the speedup. Round-1 perf changes
-# only touched output *construction* (per-iteration tibble -> list/data.frame +
-# columnar assembly) and added keep_logs/collect_well_details skip flags; no
-# arithmetic and no RNG draw was altered, so results must match to fp precision.
+# Proves the split fast engine (engine_core.R / summaries.R / report_pdf.R /
+# optimiser_cascade.R -- see docs/architecture_cleanup_plan.md) is numerically
+# identical to the original archive/simulation_engine.R, then reports the
+# speedup. Round-1 perf changes only touched output *construction*
+# (per-iteration tibble -> list/data.frame + columnar assembly) and added
+# keep_logs/collect_well_details skip flags; the engine-module split (Round 2)
+# only relocated function definitions verbatim across 4 files -- neither
+# changed any arithmetic or RNG draw, so results must match to fp precision.
 #
 # Run from R/ (the original engine lives in archive/, kept only as this
 # script's reference oracle -- app.R never sources it):
@@ -14,10 +17,18 @@
 # Do NOT adopt the fast engine in app.R unless this passes.
 # -----------------------------------------------------------------------------
 
-stopifnot(file.exists("archive/simulation_engine.R"), file.exists("simulation_engine_fast.R"))
+stopifnot(
+  file.exists("archive/simulation_engine.R"),
+  file.exists("engine_core.R"), file.exists("summaries.R"),
+  file.exists("report_pdf.R"), file.exists("optimiser_cascade.R")
+)
 
 orig <- new.env(); sys.source("archive/simulation_engine.R", envir = orig)
-fast <- new.env(); sys.source("simulation_engine_fast.R",    envir = fast)
+fast <- new.env()
+sys.source("engine_core.R",       envir = fast)
+sys.source("summaries.R",         envir = fast)
+sys.source("report_pdf.R",        envir = fast)
+sys.source("optimiser_cascade.R", envir = fast)
 sys.source("risk_library_engine.R", envir = fast)  # build_risk_table(); risk_library defaults to NULL, no behavior change
 
 # ---- synthetic inputs (same schema the engine queries) ----------------------

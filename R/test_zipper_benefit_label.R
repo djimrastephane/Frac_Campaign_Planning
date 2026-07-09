@@ -3,8 +3,10 @@
 # Regression test for the "zipper efficiency display consistency" fix:
 # build_zipper_benefit_breakdown()'s component label must reflect whatever
 # zipper_efficiency value it is actually called with, not a hardcoded 0.75.
-ENGINE <- if (file.exists("simulation_engine_fast.R")) "simulation_engine_fast.R" else "archive/simulation_engine.R"
-suppressPackageStartupMessages({ source(ENGINE); source("risk_library_engine.R") })
+ENGINE_FILES <- if (file.exists("engine_core.R")) {
+  c("engine_core.R", "summaries.R", "report_pdf.R", "optimiser_cascade.R")
+} else "archive/simulation_engine.R"
+suppressPackageStartupMessages({ for (.ef in ENGINE_FILES) source(.ef); source("risk_library_engine.R") })
 
 ASSUMPTIONS <- dplyr::bind_rows(
   tibble::tribble(

@@ -3,8 +3,9 @@
 # Single source of truth for values that were previously duplicated as
 # literal defaults across many function signatures (recommendations.R,
 # scenario_library.R, robustness.R, whatif_builder.R, risk_uncertainty.R,
-# optimiser_parallel.R, report_decision_page.R, simulation_engine_fast.R --
-# 15+ occurrences, all currently 250000 / 15000 / 25000 / 18000 / 12000) and
+# optimiser_parallel.R, report_decision_page.R, summaries.R, report_pdf.R,
+# optimiser_cascade.R -- 15+ occurrences, all currently
+# 250000 / 15000 / 25000 / 18000 / 12000) and
 # the app's own sidebar numericInput() defaults.
 #
 # Deliberately NOT wired into those existing function signatures: R evaluates
