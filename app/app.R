@@ -206,6 +206,23 @@ assumptions_to_template_headers <- function(df) {
   df
 }
 
+# Export-time column renames for the optimiser results CSV. Inside the app,
+# the Optimiser tab's footer explains that the "idle" figure prices ONLY
+# frac-fleet idle time spent waiting on wireline stage readiness -- not
+# testing-gated post-frac idle, and not other resources' idle. The bare CSV
+# leaves the app without that footnote, so the column names must carry the
+# scope themselves (a 415-day testing-serialized campaign showing 1.7 "idle
+# days" is correct but unreadable without it).
+optimiser_export_headers <- function(df) {
+  rename_map <- c(
+    idle_days = "frac_idle_awaiting_wireline_days",
+    idle_cost = "frac_idle_awaiting_wireline_cost"
+  )
+  matched <- intersect(names(rename_map), names(df))
+  names(df)[match(matched, names(df))] <- rename_map[matched]
+  df
+}
+
 # Compact display formats for value boxes.
 fmt_days_short <- function(x) {
   if (length(x) == 0 || is.na(x)) return("N/A")
@@ -3980,7 +3997,7 @@ server <- function(input, output, session) {
     filename = function() paste0("scenario_optimiser_results_", Sys.Date(), ".csv"),
     content = function(file) {
       req(optim_results())
-      write_csv(optim_results(), file)
+      write_csv(optimiser_export_headers(optim_results()), file)
     }
   )
 

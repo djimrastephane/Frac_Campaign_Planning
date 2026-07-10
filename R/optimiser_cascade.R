@@ -117,7 +117,18 @@ optimise_campaign_scenarios <- function(
   res %>%
     mutate(
       recommended = pareto & total_mobilisation_cost == min(total_mobilisation_cost[pareto]),
-      fastest = p50_days == min(p50_days),
+      # Exactly ONE row gets fastest = TRUE. Byte-identical P50 ties are
+      # expected under common random numbers whenever an added unit is
+      # non-binding (e.g. a 3rd milling unit that never gates a draw
+      # reproduces the 2-unit results exactly), so `p50 == min(p50)` alone
+      # can flag several configs. Tie-break: cheapest total mobilisation
+      # cost among the tied set, then first in grid order -- the same row
+      # the app's existing filter(fastest) %>% slice(1) displays picked,
+      # so downstream plots/cards are unchanged.
+      fastest = {
+        tied <- which(p50_days == min(p50_days))
+        dplyr::row_number() == tied[order(total_mobilisation_cost[tied])][1]
+      },
       config_label = paste0(
         operation_mode,
         " | FF:", frac_fleets, " WL:", wireline_units, " CT:", ct_units,

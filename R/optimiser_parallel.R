@@ -153,7 +153,14 @@ optimise_campaign_scenarios_par <- function(
   res %>%
     mutate(
       recommended = pareto & total_mobilisation_cost == min(total_mobilisation_cost[pareto]),
-      fastest = p50_days == min(p50_days),
+      # Single-row fastest with cheapest-cost tie-break -- identical logic to
+      # optimise_campaign_scenarios() in optimiser_cascade.R (see the comment
+      # there for why byte-identical P50 ties occur under common random
+      # numbers); keep the two in sync.
+      fastest = {
+        tied <- which(p50_days == min(p50_days))
+        dplyr::row_number() == tied[order(total_mobilisation_cost[tied])][1]
+      },
       config_label = paste0(
         operation_mode,
         " | FF:", frac_fleets, " WL:", wireline_units, " CT:", ct_units,
