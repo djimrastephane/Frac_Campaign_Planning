@@ -6,11 +6,21 @@ The simulator is designed for completion engineers, project managers, and operat
 
 The user does not need to edit R code. The application reads CSV input files, runs simulations, generates audit trails, and exports executive planning reports.
 
+**Reading guide** — this README covers, in order:
+[the problem](#project-overview) ·
+[architecture](#architecture) (with [detailed subsystem diagrams](docs/architecture.md)) ·
+[workflow / operational logic](#operational-logic) ·
+[key algorithms](#key-algorithms) ·
+[screenshots](#screenshots) ·
+[a 5-minute demo](#quick-demo-no-data-required) ·
+plus [input file formats](#input-files), [outputs](#outputs), the
+[roadmap](#roadmap), and [limitations](#limitations).
+
 ---
 
 # Current Validation Status
 
-Checked at commit `67b6a1c` (tag [`v16-stable-checkpoint`](../../tree/v16-stable-checkpoint)), 2026-07-09. Re-run these yourself with the commands shown — none of this is asserted from memory.
+Checked at commit `0e8a2ac` (post engine-module split; original stable checkpoint tagged [`v16-stable-checkpoint`](../../tree/v16-stable-checkpoint)), 2026-07-10. Re-run these yourself with the commands shown — none of this is asserted from memory.
 
 | Check | Command | Result |
 |---|---|---|
@@ -19,7 +29,7 @@ Checked at commit `67b6a1c` (tag [`v16-stable-checkpoint`](../../tree/v16-stable
 | Dependency check (DESCRIPTION Imports) | `source("run_local.R")` / manual check against `installed.packages()` | ✅ 19 / 19 required packages present, 0 missing |
 | App build (UI tree + server function construct without error) | Parse `app/app.R` excluding the final `shinyApp()` call and `eval()` every expression | ✅ UI is a valid `bslib_page`; `server` is a function |
 
-Feature work is intentionally frozen at this checkpoint pending an architecture-cleanup pass (see the open PR tracking that work) — this table should stay green across that refactor, since none of the planned changes touch simulation logic.
+The architecture-cleanup pass this table originally guarded (splitting the 4,114-line engine file into four modules, [plan](docs/architecture_cleanup_plan.md)) has since landed — every check above was re-run and stayed green across it, as intended, because the split moved code verbatim without touching simulation logic.
 
 ---
 
@@ -172,7 +182,7 @@ tradeoffs, operational risk, resource bottlenecks, and cost/schedule optimizatio
 the full tab-by-tab set (Workflow reference, Historical Learning, Sensitivity, Bayesian
 Update, What-If, Risk Heatmap), see `docs/images/screenshots/`.*
 
-*Last refreshed: 2026-06-21 (commit `6c67d08`). UI labels and panels can drift out of sync
+*Last refreshed: 2026-07-09 (commit `fe35c4c`). UI labels and panels can drift out of sync
 with these images between refreshes — if something below doesn't match the running app,
 trust the app and regenerate via `Rscript generate_screenshots.R` and
 `Rscript generate_screenshots_tabs.R`.*
@@ -431,54 +441,88 @@ campaign_days = max(frac_path_days, post_frac_completion)
 | Flowback duration | Flowback + testing min/max days | Sidebar > Resources |
 | Tree swap handling | Frac tree swap delay hours; frac trees available | Sidebar > Resources |
 | Different operation sequence | See Workflow tab in the app | Workflow tab |
-| New resource type | Code change required: add to resource vectors and workload formula | `simulation_engine.R` |
+| New resource type | Code change required: add to resource vectors and workload formula | `R/engine_core.R` |
 
 ---
 
 # Architecture
 
+Top-level data flow. **Detailed diagrams for the five core subsystems —
+simulation pipeline, historical learning, recommendation engine, resource
+scheduler, and risk propagation — are in
+[`docs/architecture.md`](docs/architecture.md).**
+
+```mermaid
+flowchart TD
+    subgraph inputs ["Inputs (CSV, templates in data_templates/)"]
+        IN["historical_wells · master_risks_assumptions ·<br/>risk_consequence_library · workflow_config (opt.)"]
+    end
+
+    VAL["Input validation — R/load_inputs.R, R/validate_inputs.R<br/>row-level diagnostics, scope check, formula-injection-safe exports"]
+
+    subgraph engine ["Monte Carlo engine — R/engine_core.R"]
+        ENG["parameter cache · static risk grid ·<br/>scope-aware risk probability (stage/well/campaign) ·<br/>consequence propagation · event-mode resource schedulers"]
+    end
+
+    subgraph results ["Per-run outputs"]
+        RES["summary (P10/50/90) · well-detail audit trail ·<br/>risk event log + consequences · resource utilization"]
+    end
+
+    subgraph analytics ["Analytics — R/summaries.R + dedicated modules"]
+        ANA["readiness · bottlenecks (bottleneck_explain.R) ·<br/>investment ranking · constraint cascade + Pareto search<br/>(optimiser_cascade.R / optimiser_parallel.R) ·<br/>sensitivity sweep · Bayesian updater · learning engine ·<br/>what-if builder · risk heatmap"]
+    end
+
+    subgraph decision ["Decision layer"]
+        DEC["traceable, re-simulation-verified recommendations<br/>(recommendations.R) · risk prediction · uncertainty ·<br/>management narrative (narrative_engine.R)"]
+    end
+
+    subgraph outputs ["Delivery — app/app.R"]
+        OUT["bslib dashboard (14 tabs) · PDF management report<br/>(report_pdf.R + report_decision_page.R) ·<br/>audit zip (18+ CSVs) · scenario library export/import"]
+    end
+
+    IN --> VAL --> ENG --> RES --> ANA --> DEC --> OUT
 ```
-Historical Wells CSV     Assumptions + Risk CSV     workflow_config.csv (opt.)
-         │                        │                           │
-         └────────────────────────┴───────────────────────────┘
-                                  │
-                                  ▼
-          Input Validation (row-level diagnostics, scope check)
-                                  │
-                                  ▼
-          Monte Carlo Simulation Engine
-            │ parameter cache · static risk grid (vectorised)
-            │ scope-aware risk probability (stage/well/campaign)
-            │ consequence propagation (CT/wireline/milling/testing)
-            │ CT cleanout parallel with frac path (conventional)
-            │ cement eval offline rule (wireline unit count driven)
-            │ two-pass CT capacity · discrete post-frac scheduler
-                                  │
-                                  ▼
-    ┌─────────────┬─────────────┬──────────────┬─────────────┐
-    │   Summary   │ Well Detail │  Risk Event  │  Resource   │
-    │ (P10/50/90) │ Audit Trail │ Log + Conseq.│ Utilization │
-    └─────────────┴─────────────┴──────────────┴─────────────┘
-                                  │
-                                  ▼
-    Analytics: readiness · bottlenecks · investment ranking
-               consequence summary · constraint cascade
-               deployment timeline · Pareto optimiser
-               schedule risk heatmap · sensitivity sweep
-               Bayesian updater · learning engine · what-if builder
-                                  │
-                                  ▼
-    Decision layer: traceable recommendations · bottleneck
-                    explainability · risk prediction
-                    uncertainty (P-values) · management narrative
-                                  │
-                                  ▼
-    ┌──────────┬──────────┬──────────┬────────────┬──────────┬──────────┐
-    │Dashboard │ Decision │Optimiser │ PDF Report │Audit Pkg │ Workflow │
-    │ (bslib)  │ Support  │(Cascade+ │(executive+ │(zip 18+  │  Viewer  │
-    │          │   Tab    │ Pareto)  │decision pg)│  CSV)    │          │
-    └──────────┴──────────┴──────────┴────────────┴──────────┴──────────┘
-```
+
+### Code map
+
+| File | Role |
+|---|---|
+| `app/app.R` | Shiny UI + server: 14 tabs, async run via `future::multisession`, download handlers |
+| `R/engine_core.R` | The Monte Carlo engine: sampling, risk grid, both resource schedulers, `simulate_campaign_detailed()` |
+| `R/summaries.R` | Post-processing of a completed run into UI-ready tables (readiness, KPIs, cost, timeline, zipper breakdown) |
+| `R/report_pdf.R` | PDF management report renderer (gridExtra/grDevices, isolated side effects) |
+| `R/optimiser_cascade.R` | Grid-search optimiser + greedy constraint cascade (multi-run orchestration) |
+| `R/optimiser_parallel.R` | Parallel backend for the optimiser (bit-identical to sequential; CRN) |
+| `R/recommendations.R`, `R/bottleneck_explain.R` | Traceable recommendation verdicts; queue-delay bottleneck ranking |
+| `R/learning_engine.R`, `R/bayesian_updater.R` | Distribution fitting (AIC-ranked); Normal-conjugate + Beta-Binomial updating |
+| `R/risk_library_engine.R` | Scope-aware risk table + consequence-library wiring |
+| `R/sensitivity_analysis.R`, `R/robustness.R`, `R/whatif_builder.R`, `R/risk_uncertainty.R`, `R/risk_heatmap.R`, `R/scenario_library.R`, `R/narrative_engine.R` | One decision-support feature each |
+| `R/constants.R`, `R/load_inputs.R`, `R/validate_inputs.R`, `R/validate_risk_consequence_library.R` | Shared constants; CSV loading and validation |
+| `R/plots.R` | All ggplot chart builders |
+| `R/check_regression.R`, `R/check_scheduling_modes.R`, `R/test_*.R` | Regression oracle (vs `R/archive/`) + 15 property-check suites, run in CI |
+
+---
+
+# Key Algorithms
+
+The load-bearing methods, what they actually do, and where they live. Wording
+here is deliberately calibrated — where a method is a screening estimate or an
+approximation, it says so.
+
+| Algorithm | What it does | Where |
+|---|---|---|
+| **Bootstrap + triangular sampling** | Stage/plug durations are bootstrap-resampled from historical wells; assumption-driven durations and risk delays are triangular(min, most-likely, max) draws | `triangle_sample()`, `simulate_campaign_detailed()` — `R/engine_core.R` |
+| **Scope-aware risk probability** | A per-*stage* probability compounds to `1−(1−p·m)^stages` per well (multiplier applied per stage, *before* compounding); per-*well* applies independently; per-*campaign* is a single Bernoulli draw. Prevents treating one campaign-level event as 30 independent per-well events | `build_risk_table()` — `R/risk_library_engine.R` |
+| **Consequence propagation** | Each occurred technical risk adds direct delay *and* induced workload (extra wireline runs, CT days, milling plugs, testing days, stages, logistics) onto the specific resource that absorbs it | `draw_risks_on_grid()`, `CONSEQUENCE_CONFIG` — `R/engine_core.R` |
+| **Event-mode resource scheduling** | Pre-frac: earliest-available-unit assignment across the wireline pool with CT gating, producing a wait *attribution* (capacity vs CT-caused; queueing vs duration-floor). Post-frac: first-come-first-served milling/testing. A contention model, not a calendar-resolution discrete-event simulation | `schedule_pre_frac()`, `schedule_post_frac_milling()` — `R/engine_core.R` |
+| **Common random numbers (CRN)** | Every mode/scenario comparison runs on the same seed, so deltas are paired comparisons with variance reduction — Conventional-vs-Zipper, the optimiser grid, and recommendation verification all use it | seeding in `simulate_campaign_detailed()`; used by `app/app.R`, `R/optimiser_cascade.R`, `R/recommendations.R` |
+| **Re-simulation-verified recommendations** | The default recommendation is an instant analytic estimate; "Verify" re-runs the full simulation with +1 unit at the same seed and measures the actual paired P50 reduction and win rate, then applies economic + confidence gates for a Recommended / Optional / Not justified verdict | `recommend_action()`, `REC_DECISION_THRESHOLDS` — `R/recommendations.R` |
+| **AIC-ranked distribution fitting** | MLE fits (Normal/Lognormal/Gamma/Weibull) ranked by AIC — the selection logic. The KS p-value shown alongside is an *indicative* check only (parameters were fitted from the same data), never a confirmed-fit claim | `learn_from_historical()` — `R/learning_engine.R` |
+| **Bayesian updating** | Durations: Normal-conjugate, precision-weighted prior/new-data combination with a 90% CI on the shift. Risk probabilities: Beta-Binomial with a user-set prior strength. Conservative decision thresholds gate any "update the assumption" call | `R/bayesian_updater.R`, `BAYES_DECISION_THRESHOLDS` |
+| **Greedy constraint cascade** | Fix the binding constraint, re-simulate, find the next one — repeated until marginal saving < 2 days. Greedy, not globally optimal; the Pareto grid search covers non-obvious multi-resource combinations | `analyse_constraint_cascade()`, `optimise_campaign_scenarios()` — `R/optimiser_cascade.R` |
+| **OAT sensitivity / robustness** | One-at-a-time perturbation sweeps (±20% timing, ±50% risk probability, ±1 resource unit; ±15% for recommendation robustness) at reduced iterations — screening tools for ranking drivers, not calibrated confidence intervals | `R/sensitivity_analysis.R`, `R/robustness.R` |
+
+Each is diagrammed in [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
@@ -649,23 +693,44 @@ Optimiser results and constraint cascade results export separately from the Opti
 
 ## Install Dependencies
 
-```r
-install.packages(c(
-  "shiny", "bslib",
-  "dplyr", "tidyr", "stringr", "tibble", "readr",
-  "ggplot2", "scales",
-  "DT", "janitor",
-  "MASS",        # distribution fitting (learning engine)
-  "gridExtra",   # executive PDF report
-  "zip"          # robust cross-platform audit package
-))
-```
+The [`DESCRIPTION`](DESCRIPTION) file is the single source of truth for
+dependencies — `run_local.R` reads it, installs any missing required package
+(`Imports`), and only warns about optional ones (`Suggests`: PDF merging,
+dual-panel plots, zip packaging — features degrade gracefully without them).
+There is no package list to keep in sync by hand.
 
 ## Launch
 
 ```r
+# from the project root
 source("run_local.R")
 ```
+
+## Quick demo (no data required)
+
+Everything below works with zero uploads — the app falls back to 30 synthetic
+wells (clearly flagged in the sidebar) and the bundled assumption templates.
+
+1. `source("run_local.R")`, then click **Run simulation** with the defaults
+   (30 wells, "Compare both", Standard/1,000 iterations). Takes roughly
+   half a minute; the app stays responsive while it runs in the background.
+2. **Overview** — read the verdict: best option, P50/P90, zipper saving, the
+   readiness score with its two weakest drivers, and the campaign bottleneck.
+3. **Decision support** — click **Verify by re-simulation** on the
+   Recommendation card and watch the analytic estimate get replaced by a
+   paired re-simulated result with a win-rate confidence badge.
+4. **Optimiser** — click **Run constraint cascade** to see what limits the
+   campaign now, what limits it after each fix, and the ROI of every step.
+5. **Historical Learning** — see the distribution fits (AIC-ranked, with the
+   indicative fit-quality caveat) the synthetic wells produce, and the
+   suggested triangular assumptions you would paste into the CSV with real data.
+6. Sidebar → **Audit package (zip)** for the full export: every table above
+   as CSV plus the PDF management report (**Management report PDF** is also
+   available separately).
+
+To try it with your own data afterwards, start from the templates in
+`data_templates/` — column meanings are documented in
+[Input Files](#input-files).
 
 ---
 
