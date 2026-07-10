@@ -223,41 +223,54 @@ configuration.
 
 # Architecture
 
-Top-level data flow. **Detailed diagrams for the five core subsystems —
-simulation pipeline, historical learning, recommendation engine, resource
-scheduler, and risk propagation — are in
-[`docs/architecture.md`](docs/architecture.md).**
+## At a glance
+
+What goes in, what the simulator does, and what decisions come out — in
+plain language. (Engineers: the technical system diagram and the five
+detailed subsystem diagrams are in
+[`docs/architecture.md`](docs/architecture.md).)
 
 ```mermaid
-flowchart TD
-    subgraph inputs ["Inputs (CSV, templates in data_templates/)"]
-        IN["historical_wells · master_risks_assumptions ·<br/>risk_consequence_library · workflow_config (opt.)"]
+flowchart LR
+    subgraph provide ["You provide"]
+        A["Past well performance<br/>(or use the built-in sample data)"]
+        B["Risk & duration assumptions<br/>(editable in-app, templates included)"]
+        C["Equipment counts & day rates<br/>(sidebar settings)"]
     end
 
-    VAL["Input validation — R/load_inputs.R, R/validate_inputs.R<br/>row-level diagnostics, scope check, formula-injection-safe exports"]
+    SIM["The simulator runs your whole<br/>campaign 1,000+ times, with<br/>realistic equipment queues<br/>and risk events"]
 
-    subgraph engine ["Monte Carlo engine — R/engine_core.R"]
-        ENG["parameter cache · static risk grid ·<br/>scope-aware risk probability (stage/well/campaign) ·<br/>consequence propagation · event-mode resource schedulers"]
+    subgraph get ["Answers you get"]
+        D["How long, how much:<br/>best / expected / worst-case<br/>duration and cost"]
+        E["What's holding you back:<br/>the bottleneck, and what<br/>replaces it once fixed"]
+        F["Where to spend next:<br/>a costed recommendation,<br/>verified by re-simulation,<br/>with a confidence rating"]
+        G["Odds of success:<br/>probability of hitting your<br/>target date and budget"]
     end
 
-    subgraph results ["Per-run outputs"]
-        RES["summary (P10/50/90) · well-detail audit trail ·<br/>risk event log + consequences · resource utilization"]
-    end
+    DECIDE["Go / no-go and<br/>resourcing decision —<br/>every number traceable to<br/>an exportable audit trail"]
 
-    subgraph analytics ["Analytics — R/summaries.R + dedicated modules"]
-        ANA["readiness · bottlenecks (bottleneck_explain.R) ·<br/>investment ranking · constraint cascade + Pareto search<br/>(optimiser_cascade.R / optimiser_parallel.R) ·<br/>sensitivity sweep · Bayesian updater · learning engine ·<br/>what-if builder · risk heatmap"]
-    end
-
-    subgraph decision ["Decision layer"]
-        DEC["traceable, re-simulation-verified recommendations<br/>(recommendations.R) · risk prediction · uncertainty ·<br/>management narrative (narrative_engine.R)"]
-    end
-
-    subgraph outputs ["Delivery — app/app.R"]
-        OUT["bslib dashboard (14 tabs) · PDF management report<br/>(report_pdf.R + report_decision_page.R) ·<br/>audit zip (18+ CSVs) · scenario library export/import"]
-    end
-
-    IN --> VAL --> ENG --> RES --> ANA --> DEC --> OUT
+    A --> SIM
+    B --> SIM
+    C --> SIM
+    SIM --> D --> DECIDE
+    SIM --> E --> DECIDE
+    SIM --> F --> DECIDE
+    SIM --> G --> DECIDE
 ```
+
+Three properties matter most for trusting the output: recommendations are
+**verified** (re-simulated with the proposed change, not just estimated),
+uncertainty is **explicit** (ranges and probabilities, never single-point
+answers), and everything is **auditable** (each figure exports to an audit
+package a reviewer can check).
+
+## Under the hood
+
+The technical system diagram and five detailed subsystem diagrams
+(simulation pipeline, historical learning, recommendation engine, resource
+scheduler, risk propagation) are in
+[`docs/architecture.md`](docs/architecture.md). The table below maps each
+file to its role.
 
 ### Code map
 
