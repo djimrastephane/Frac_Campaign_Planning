@@ -458,11 +458,31 @@ Monte Carlo engine, historical duration extraction, risk framework, conventional
 - **What-If Scenario Builder**: batch variant comparison with P10/P50/P90, S-curve overlay, readiness and bottleneck per variant
 - **Schedule Risk Heatmap**: well × risk-event expected delay tile chart; well risk ranking with Low/Medium/High/Critical classification; pad-level rollup
 
-## Version 4.0 — Resource Scheduling Engine (Planned)
-Discrete-event scheduling, true critical path, drilling programme integration, pad-to-pad resource movement, multi-fleet sequencing, schedule-accurate Gantt charts.
+## Version 4.0 — Resource Scheduling Engine (Partially delivered)
+
+**Delivered ahead of schedule:** real resource-availability-vector queue
+schedulers for both the pre-frac phase (`schedule_pre_frac()`, now the
+default — CT gating, earliest-available wireline unit across the pool, wait
+attribution) and the post-frac phase (milling/testing, first-come-first-served).
+See the [Limitations](#limitations) section and
+[`docs/architecture.md`](docs/architecture.md) diagram 4.
+
+**Still planned:** stage-by-stage discrete-event simulation with a true
+critical path (the frac-path total is still a workload sum), drilling
+programme integration, pad-to-pad resource movement, multi-fleet sequencing,
+schedule-accurate Gantt charts.
 
 ## Version 5.0 — Campaign Planning Platform (Planned)
-Scenario management, historical campaign backtesting (predicted vs actual), portfolio-level planning.
+Historical campaign backtesting (predicted vs actual — parked pending real
+campaign outcome data), portfolio-level planning, persistent multi-user
+scenario workspaces (the in-app [Scenario Library](#main-features) with
+JSON export/import already covers single-user scenario management).
+
+## Engineering quality (in progress)
+The engine was split into four focused modules with bit-identical regression
+proof ([`docs/architecture_cleanup_plan.md`](docs/architecture_cleanup_plan.md),
+Steps 1–2 complete). Remaining: `app.R` modularization into Shiny modules per
+tab (Step 3), deferred pending its own regression review.
 
 ---
 

@@ -20,7 +20,7 @@
 # sequence approximation. It does NOT solve for the globally optimal assignment
 # that minimises post-frac completion time. In multi-pad campaigns with uneven
 # milling workloads, reordering could reduce the critical path. This is
-# intentional: a full optimal scheduler is roadmap v3.0 (discrete-event engine).
+# intentional: a full optimal scheduler is roadmap v4.0 (discrete-event engine).
 # Users should treat campaign duration estimates as planning-level estimates,
 # not execution schedules.
 #
