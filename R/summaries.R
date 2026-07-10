@@ -3,8 +3,9 @@
 # Pure post-processing of a completed simulate_campaign_detailed() result into
 # UI-ready tables: summarise_*()/build_*() functions covering delay
 # contributors, resource utilization, bottlenecks, traffic lights, readiness
-# score, cost impact, executive KPIs/summary, investment ranking, and risk
-# consequences. Depends on engine_core.R's output shape only -- never on its
+# score, cost impact, executive KPIs/summary, investment ranking, risk
+# consequences, the zipper benefit breakdown, and the resource deployment
+# timeline. Depends on engine_core.R's output shape only -- never on its
 # internals -- so source engine_core.R first.
 
 # ---------------------------------------------------------------------------
@@ -803,3 +804,266 @@ summarise_risk_consequences <- function(risk_event_log, summary = NULL) {
     arrange(desc(expected_impact_per_campaign))
 }
 
+
+build_zipper_benefit_breakdown <- function(summary, zipper_efficiency = 0.75) {
+  if (is.null(summary) || nrow(summary) == 0) return(NULL)
+  conv <- summary %>% dplyr::filter(operation_mode == "Conventional")
+  zip  <- summary %>% dplyr::filter(operation_mode == "Zipper")
+  if (nrow(conv) == 0 || nrow(zip) == 0) return(NULL)
+
+  n_wells <- median(conv$wells, na.rm = TRUE)
+  ct_pw   <- mean(conv$total_ct_fleet_days,       na.rm = TRUE) / n_wells
+  fr_c_pw <- mean(conv$total_frac_fleet_days,     na.rm = TRUE) / n_wells
+  wl_c_pw <- mean(conv$total_wireline_fleet_days, na.rm = TRUE) / n_wells
+  fr_z_pw <- mean(zip$total_frac_fleet_days,      na.rm = TRUE) / n_wells
+  wl_z_pw <- mean(zip$total_wireline_fleet_days,  na.rm = TRUE) / n_wells
+
+  conv_path_pw <- pmax(ct_pw, fr_c_pw + wl_c_pw)
+  step_a_pw    <- pmax(ct_pw, fr_z_pw + wl_c_pw)
+  step_b_pw    <- pmax(ct_pw, pmax(fr_z_pw, wl_z_pw))
+  zip_path_pw  <- ct_pw + pmax(fr_z_pw, wl_z_pw)
+
+  saving_efficiency <- (conv_path_pw - step_a_pw) * n_wells
+  saving_wl_overlap <- (step_a_pw    - step_b_pw) * n_wells
+  cost_ct_path      <- (step_b_pw    - zip_path_pw) * n_wells
+  total_saving      <- median(conv$estimated_campaign_days, na.rm = TRUE) -
+                       median(zip$estimated_campaign_days,  na.rm = TRUE)
+  frac_path_saving  <- (conv_path_pw - zip_path_pw) * n_wells
+  post_frac_diff    <- frac_path_saving - total_saving
+  post_frac_other   <- -post_frac_diff
+
+  # By construction (telescoping subtraction: conv_path_pw -> step_a_pw ->
+  # step_b_pw -> zip_path_pw, then the post-frac residual closes the gap to
+  # total_saving) these four components sum EXACTLY to total_saving before
+  # rounding. Guard that invariant so a future formula change can't silently
+  # break it -- this should never fire.
+  unrounded_sum <- saving_efficiency + saving_wl_overlap + cost_ct_path + post_frac_other
+  if (abs(unrounded_sum - total_saving) > 1e-6) {
+    warning(sprintf(
+      "build_zipper_benefit_breakdown: components sum to %.4f but total_saving is %.4f (diff %.4f) -- telescoping invariant broken, check the formula.",
+      unrounded_sum, total_saving, unrounded_sum - total_saving))
+  }
+
+  # Round the total and the first 3 "real" components independently, then
+  # force the 4th (a catch-all/residual label already) to absorb whatever
+  # rounding residual is left, so the DISPLAYED integers always reconcile
+  # exactly -- not just within a tolerance. Independent per-number rounding
+  # is what broke this before: each of the 5 numbers was round()ed on its
+  # own, so the displayed parts could be off by 1-2 days from the displayed
+  # total even though the underlying math is exact.
+  total_r      <- round(total_saving, 0)
+  efficiency_r <- round(saving_efficiency, 0)
+  wl_overlap_r <- round(saving_wl_overlap, 0)
+  ct_path_r    <- round(cost_ct_path, 0)
+  post_frac_r  <- total_r - (efficiency_r + wl_overlap_r + ct_path_r)
+
+  tibble::tibble(
+    component   = c(sprintf("Frac fleet efficiency (zipper ×%.2f)", zipper_efficiency),
+                    "Wireline–frac overlap (parallel in zipper)",
+                    "CT path offset (CT adds in zipper)",
+                    "Post-frac & other differences",
+                    "Total saving"),
+    saving_days = c(efficiency_r, wl_overlap_r, ct_path_r, post_frac_r, total_r),
+    explanation = c(
+      sprintf("Frac stages pump %.0f%% faster in zipper mode", round((1-zipper_efficiency)*100)),
+      "Wireline preps next well during pumping; in conventional it adds sequentially to the path",
+      "CT must precede each well in zipper (partial offset to the gains above)",
+      "Wireline idle cost, tree swap delays, post-frac queue differences, and rounding residual",
+      sprintf("Net P50 saving: Conv → Zip = %.0f d", total_saving)
+    )
+  )
+}
+
+build_executive_summary <- function(summary, risk_event_log, resource_utilization) {
+  if (is.null(summary) || nrow(summary) == 0) return(tibble())
+
+  sim_stats <- summarise_simulation(summary)
+  resource_summary <- summarise_resource_utilization(resource_utilization)
+  bottlenecks <- summarise_bottlenecks(resource_summary)
+  delay_summary <- summarise_delay_contributors(risk_event_log)
+
+  best <- sim_stats %>% arrange(p50_days) %>% slice(1)
+  worst <- sim_stats %>% arrange(desc(p50_days)) %>% slice(1)
+
+  conventional <- sim_stats %>% filter(operation_mode == "Conventional") %>% slice(1)
+  zipper <- sim_stats %>% filter(operation_mode == "Zipper") %>% slice(1)
+
+  saving_days <- if (nrow(conventional) == 1 && nrow(zipper) == 1) conventional$p50_days - zipper$p50_days else NA_real_
+  saving_pct <- if (!is.na(saving_days) && conventional$p50_days > 0) saving_days / conventional$p50_days else NA_real_
+
+  primary_bottleneck <- bottlenecks %>%
+    arrange(priority, desc(p90_utilization)) %>%
+    slice(1)
+
+  top_risk <- delay_summary %>%
+    group_by(risk_event) %>%
+    summarise(total_delay_days = sum(total_delay_days, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(total_delay_days)) %>%
+    slice(1)
+
+  tibble(
+    metric = c(
+      "Campaign size",
+      "Operation modes simulated",
+      "Best execution option",
+      "Best option P50 duration, days",
+      "Highest P50 duration, days",
+      "Estimated P50 saving from zipper, days",
+      "Estimated P50 saving from zipper, %",
+      "Primary bottleneck",
+      "Primary bottleneck status",
+      "Mean wireline readiness delay, days",
+      "Top delay contributor",
+      "Mean extra plugs per campaign",
+      "Mean extra stages per campaign",
+      "Mean risk delay per campaign, days"
+    ),
+    value = c(
+      paste0(unique(summary$wells)[1], " wells"),
+      paste(unique(summary$operation_mode), collapse = ", "),
+      best$operation_mode,
+      round(best$p50_days, 2),
+      round(worst$p50_days, 2),
+      ifelse(is.na(saving_days), "N/A", round(saving_days, 2)),
+      ifelse(is.na(saving_pct), "N/A", paste0(round(100 * saving_pct, 1), "%")),
+      ifelse(nrow(primary_bottleneck) == 0, "N/A", paste(primary_bottleneck$operation_mode, primary_bottleneck$resource, sep = " - ")),
+      ifelse(nrow(primary_bottleneck) == 0, "N/A", primary_bottleneck$bottleneck_status),
+      round(mean(summary$total_wireline_readiness_delay_days, na.rm = TRUE), 2),
+      ifelse(nrow(top_risk) == 0, "No triggered risks", top_risk$risk_event),
+      round(mean(summary$total_extra_plugs, na.rm = TRUE), 2),
+      round(mean(summary$total_extra_stages, na.rm = TRUE), 2),
+      round(mean(summary$total_risk_delay_days, na.rm = TRUE), 2)
+    )
+  )
+}
+
+# ---------------------------------------------------------------------------
+# NEW v13.1: Indicative resource deployment timeline.
+# The engine is a workload aggregator, not a discrete-event scheduler, so this
+# is a sequence-based approximation: bar lengths are mean fleet days; start
+# offsets follow the operational sequence (CT cleanout -> wireline -> frac ->
+# milling -> flowback/testing), each lagged by one average well cycle.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Resource deployment timeline - redesigned in v16.1
+#
+# The previous version showed fleet-days as bar length with sequential start
+# offsets. This was misleading: CT ends at day 34 while the campaign runs to
+# day 280, making it look like CT leaves site early.
+#
+# The corrected version shows TWO layers per resource:
+#   1. Deployment window (light bar): the calendar period the resource is
+#      mobilised on-site from the first time it is needed to when the last
+#      unit of work it can do is done.
+#   2. Active work (dark bar): fleet-days of actual work within that window.
+#
+# Deployment windows are derived from the operational sequence:
+#   CT:      day 0  -> frac_path_end  (needed throughout for contingency)
+#   Wireline:day 0  -> frac_path_end  (perforating and plug-setting all wells)
+#   Frac:    first well CT complete -> campaign end
+#   Milling: first well frac-released -> post_frac_end
+#   Testing: first well milling-complete -> campaign end
+#
+# Start offsets use mean per-well cycle times as in the previous version.
+# ---------------------------------------------------------------------------
+
+build_resource_timeline <- function(summary) {
+  empty <- tibble(
+    operation_mode = character(), resource = character(),
+    deploy_start = numeric(), deploy_end = numeric(),
+    active_start = numeric(), active_end = numeric(),
+    active_days = numeric(), deploy_days = numeric(),
+    utilization_of_deployment = numeric(), utilization_of_campaign = numeric(),
+    campaign_days = numeric()
+  )
+  if (is.null(summary) || nrow(summary) == 0) return(empty)
+
+  agg <- summary %>%
+    group_by(operation_mode) %>%
+    summarise(
+      n_wells = dplyr::first(wells),
+      campaign_days = mean(estimated_campaign_days, na.rm = TRUE),
+      ct_days = mean(total_ct_fleet_days, na.rm = TRUE),
+      wl_days = mean(total_wireline_fleet_days, na.rm = TRUE),
+      fr_days = mean(total_frac_fleet_days, na.rm = TRUE),
+      mill_days = mean(total_milling_fleet_days, na.rm = TRUE),
+      test_days = mean(total_testing_fleet_days, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      # Per-well cycle times used to estimate mobilisation start offsets
+      ct_pw   = ct_days   / pmax(n_wells, 1),
+      wl_pw   = wl_days   / pmax(n_wells, 1),
+      fr_pw   = fr_days   / pmax(n_wells, 1),
+      mill_pw = mill_days / pmax(n_wells, 1),
+      # Milling starts after first wells are released (~after first well CT + WL cycle)
+      mill_start = ct_pw + wl_pw + fr_pw,
+      # Testing starts after first wells are milled
+      test_start = mill_start + mill_pw
+    )
+
+  out <- lapply(seq_len(nrow(agg)), function(i) {
+    r <- agg[i, ]
+
+    # Deployment windows: when is this resource on-site?
+    # CT and Wireline: from day 0 to frac completion
+    # Frac fleet: from first well ready to campaign end
+    # Milling: from first well frac-released to end of campaign
+    # Testing: from first well milled to end of campaign
+    deploy_starts <- c(
+      "CT / cleanout" = 0,
+      "Wireline"      = 0,
+      "Frac fleet"    = r$ct_pw,
+      "Milling"       = pmax(r$mill_start, 0),
+      "Testing unit"  = pmax(r$test_start, 0)
+    )
+    # CT and Wireline are mobilised for the entire frac phase and need to remain
+    # available for contingency interventions until frac is complete. Their
+    # deployment window ends at campaign_days (the campaign boundary for the
+    # frac-critical path, which equals total campaign when frac is the bottleneck).
+    # Using campaign_days directly is the defensible planning assumption.
+    deploy_ends <- c(
+      "CT / cleanout" = r$campaign_days,
+      "Wireline"      = r$campaign_days,
+      "Frac fleet"    = r$campaign_days,
+      "Milling"       = r$campaign_days,
+      "Testing unit"  = r$campaign_days
+    )
+    active_days_raw <- c(
+      "CT / cleanout" = r$ct_days,
+      "Wireline"      = r$wl_days,
+      "Frac fleet"    = r$fr_days,
+      "Milling"       = r$mill_days,
+      "Testing unit"  = r$test_days
+    )
+
+    deploy_days_v <- pmax(deploy_ends - deploy_starts, 1e-9)
+
+    # Cap active bar at the deployment window so bars never exceed campaign line.
+    # When active_days_raw > deploy_days the resource is overloaded (utilization
+    # > 100%). We report the true utilization but clip the visual bar at the
+    # window boundary — the overload is visible from utilization_of_deployment > 1.
+    active_days_v <- pmin(as.numeric(active_days_raw), deploy_days_v)
+
+    tibble(
+      operation_mode = r$operation_mode,
+      resource = names(deploy_starts),
+      deploy_start = as.numeric(deploy_starts),
+      deploy_end   = as.numeric(deploy_ends),
+      deploy_days  = as.numeric(deploy_days_v),
+      active_start = as.numeric(deploy_starts),
+      active_end   = as.numeric(deploy_starts) + active_days_v,
+      active_days  = active_days_v,
+      active_days_true = as.numeric(active_days_raw),   # unclipped, used for label
+      utilization_of_deployment = as.numeric(active_days_raw) / pmax(deploy_days_v, 1e-9),
+      utilization_of_campaign   = as.numeric(active_days_raw) / pmax(r$campaign_days, 1e-9),
+      campaign_days = r$campaign_days
+    )
+  })
+
+  bind_rows(out) %>%
+    mutate(resource = factor(resource, levels = rev(c(
+      "CT / cleanout", "Wireline", "Frac fleet", "Milling", "Testing unit"
+    ))))
+}

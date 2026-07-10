@@ -3309,7 +3309,7 @@ server <- function(input, output, session) {
   # Decision Support tab's Recommendation card renders -- instead of the
   # separate build_bottleneck_narrative()/build_resource_recommendations()
   # path, whose "days recoverable" was an undisclosed workload/units screening
-  # estimate (see R/summaries.R:496-501) that could name a
+  # estimate (see build_resource_recommendations() in R/summaries.R) that could name a
   # different resource, with a different saving, than this same simulation's
   # constraint cascade or Decision Support recommendation.
   output$bottleneck_card_header <- renderUI({
