@@ -10,11 +10,20 @@
 # Method
 # ------
 # Within each Monte Carlo iteration, resources are ranked by
-# fleet_days_after_resources (the critical-path load). The GAP between
+# fleet_days_after_resources -- STREAM CALENDAR DAYS (workload / units), the
+# same units-aware basis for all five resources in both scheduling modes
+# (see the producer comment in R/engine_core.R). The GAP between
 # consecutive ranks is the schedule time recoverable by relieving that rank:
 #   gap_1 = days the primary adds over the next-tightest resource
 #   gap_2 = days the (then-)secondary adds once the primary is relieved
 # Averaging these over iterations gives expected, decision-ready contributions.
+#
+# IMPORTANT distinction the UI must preserve: gap_1 estimates relief down to
+# the NEXT constraint (i.e. "if this resource stopped binding entirely").
+# That is NOT the effect of adding one unit -- +1 unit only shrinks the
+# stream from W/u to W/(u+1). recommend_action(verify = TRUE) answers the
+# +1-unit question by paired re-simulation; expect its number to be smaller
+# than gap_1. Both are shown, labelled ESTIMATED vs VERIFIED.
 #
 # This deliberately classifies severity by DELAY CONTRIBUTION relative to the
 # P50 campaign, not by "is it the argmax" -- so a resource that is always the

@@ -1815,13 +1815,51 @@ simulate_campaign_detailed <- function(
       adjusted_milling_workload_days,
       total_testing_workload_days
     )
-    resource_fleet_days <- c(
-      sum(well_df$frac_fleet_days, na.rm = TRUE),
-      sum(well_df$wireline_fleet_days, na.rm = TRUE),
-      sum(well_df$ct_fleet_days, na.rm = TRUE) + ct_milling_support_ct_days / pmax(ct_units, 1e-9),
-      total_milling_fleet_days,
-      total_testing_fleet_days
-    )
+    # fleet_days_after_resources semantic: STREAM CALENDAR DAYS -- each
+    # resource's workload divided by its unit count, i.e. how long that
+    # resource's stream takes given the units contracted. This is what
+    # explain_bottlenecks() ranks on (and risk_uncertainty.R's binding calc,
+    # build_cost_impact(), build_resource_recommendations() consume), so all
+    # five resources MUST be on the same units-aware basis or multi-unit
+    # configs mis-rank. Raw pool workload stays available as workload_days.
+    #
+    # Event mode needs the explicit division: its per-well *_fleet_days
+    # columns hold actual busy-time (raw workload, deliberately NOT divided
+    # by units -- see the schedule_pre_frac() override above), which without
+    # this correction made frac/wireline/CT unit-count-blind in the ranking
+    # while milling/testing scaled with units. Reproduced defect: at
+    # FF=2/WL=2/ML=2/TU=3 the ranking named "Frac fleet" (5 d, Minor) while
+    # paired re-simulation showed +1 testing unit saves ~35 d and +1 frac
+    # fleet ~0.1 d. See R/test_bottleneck_ranking_units.R.
+    #
+    # The formula branch is kept byte-identical (its per-well columns are
+    # already workload/units): check_regression.R requires bit-identical
+    # output vs archive/simulation_engine.R on that path.
+    #
+    # Known quirk (pre-existing, both modes, shared with the archive
+    # engine): workload_days for CT uses total_ct_primary_days, summed
+    # BEFORE the 2+-wireline cement-eval-offline override rezeroes online
+    # cement eval (see the Pass-1 mutate above), while ct_fleet_days uses
+    # the post-override value. So fleet_days[CT] <= workload_days[CT]/units,
+    # equal when wireline_units < 2. Pinned by
+    # R/test_bottleneck_ranking_units.R.
+    resource_fleet_days <- if (pre_frac_scheduling == "event") {
+      c(
+        sum(well_df$frac_fleet_days, na.rm = TRUE) / pmax(frac_fleets, 1e-9),
+        sum(well_df$wireline_fleet_days, na.rm = TRUE) / pmax(wireline_units, 1e-9),
+        (sum(well_df$ct_fleet_days, na.rm = TRUE) + ct_milling_support_ct_days) / pmax(ct_units, 1e-9),
+        total_milling_fleet_days,
+        total_testing_fleet_days
+      )
+    } else {
+      c(
+        sum(well_df$frac_fleet_days, na.rm = TRUE),
+        sum(well_df$wireline_fleet_days, na.rm = TRUE),
+        sum(well_df$ct_fleet_days, na.rm = TRUE) + ct_milling_support_ct_days / pmax(ct_units, 1e-9),
+        total_milling_fleet_days,
+        total_testing_fleet_days
+      )
+    }
 
     resource_list[[iter_id]] <- data.frame(
       simulation_id = iter_id,

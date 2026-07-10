@@ -488,9 +488,10 @@ ui <- page_sidebar(
             uiOutput("bottleneck_card_header", inline = TRUE),
             bslib::tooltip(
               tags$span(class = "text-muted ms-1", style = "cursor: help;", "(?)"),
-              "Why: the limiting resource and its measured queue-delay contribution (not raw utilization alone). ",
-              "Evidence: the schedule impact of adding one unit, from the constraint cascade. ",
-              "Expected impact: the same number, verifiable by re-simulation.",
+              "Why: the limiting resource, ranked by unit-aware stream duration (workload / units), not raw utilization alone. ",
+              "The analytic estimate is the relief down to the NEXT constraint -- a different question from ",
+              "'what does one extra unit buy?'. Click Verify to re-simulate with +1 unit and get the measured, ",
+              "paired answer to that second question; expect the verified number to be smaller.",
               placement = "right"
             )
           ),
