@@ -1,15 +1,53 @@
-# Architecture — Subsystem Diagrams
+# Architecture — System and Subsystem Diagrams
 
-Detailed diagrams for the five subsystems a reviewer most needs to understand.
-Every box names the actual function and file it describes (post engine-split
-layout: `R/engine_core.R` / `R/summaries.R` / `R/report_pdf.R` /
-`R/optimiser_cascade.R` — see [`architecture_cleanup_plan.md`](architecture_cleanup_plan.md)
-for how that split was made and verified). The top-level system diagram lives
-in the [README's Architecture section](../README.md#architecture).
+The technical system overview, then detailed diagrams for the five subsystems
+a reviewer most needs to understand. Every box names the actual function and
+file it describes (post engine-split layout: `R/engine_core.R` /
+`R/summaries.R` / `R/report_pdf.R` / `R/optimiser_cascade.R` — see
+[`architecture_cleanup_plan.md`](architecture_cleanup_plan.md) for how that
+split was made and verified). For the plain-language, decision-oriented view,
+see the [README's Architecture section](../README.md#architecture).
 
 Diagrams are [Mermaid](https://mermaid.js.org/) — GitHub renders them inline,
 and they diff like code, so they can be reviewed and kept current in the same
 PRs that change the functions they describe.
+
+---
+
+## 0. System overview (technical)
+
+End-to-end data flow with the responsible files named at each stage.
+
+```mermaid
+flowchart TD
+    subgraph inputs ["Inputs (CSV, templates in data_templates/)"]
+        IN["historical_wells · master_risks_assumptions ·<br/>risk_consequence_library · workflow_config (opt.)"]
+    end
+
+    VAL["Input validation — R/load_inputs.R, R/validate_inputs.R<br/>row-level diagnostics, scope check, formula-injection-safe exports"]
+
+    subgraph engine ["Monte Carlo engine — R/engine_core.R"]
+        ENG["parameter cache · static risk grid ·<br/>scope-aware risk probability (stage/well/campaign) ·<br/>consequence propagation · event-mode resource schedulers"]
+    end
+
+    subgraph results ["Per-run outputs"]
+        RES["summary (P10/50/90) · well-detail audit trail ·<br/>risk event log + consequences · resource utilization"]
+    end
+
+    subgraph analytics ["Analytics — R/summaries.R + dedicated modules"]
+        ANA["readiness · bottlenecks (bottleneck_explain.R) ·<br/>investment ranking · constraint cascade + Pareto search<br/>(optimiser_cascade.R / optimiser_parallel.R) ·<br/>sensitivity sweep · Bayesian updater · learning engine ·<br/>what-if builder · risk heatmap"]
+    end
+
+    subgraph decision ["Decision layer"]
+        DEC["traceable, re-simulation-verified recommendations<br/>(recommendations.R) · risk prediction · uncertainty ·<br/>management narrative (narrative_engine.R)"]
+    end
+
+    subgraph outputs ["Delivery — app/app.R"]
+        OUT["bslib dashboard (14 tabs) · PDF management report<br/>(report_pdf.R + report_decision_page.R) ·<br/>audit zip (18+ CSVs) · scenario library export/import"]
+    end
+
+    IN --> VAL --> ENG --> RES --> ANA --> DEC --> OUT
+```
 
 ---
 
