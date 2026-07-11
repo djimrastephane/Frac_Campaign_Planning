@@ -966,6 +966,14 @@ ui <- page_sidebar(
 
     nav_panel(
       "Risks",
+      div(class = "d-flex align-items-center gap-3 mb-1",
+        tags$span(class = "fw-bold", "Chart detail:"),
+        radioButtons("risks_detail", NULL,
+                     choices = c("Top 10 only" = "top", "Show all" = "all"),
+                     selected = "top", inline = TRUE),
+        tags$small(class = "text-muted",
+                   "Applies to every chart on this tab. Detail tables always list everything.")
+      ),
       plot_card("Schedule risk heatmap — expected delay by well and risk type", "risk_heatmap_plot", "520px",
                 decision = "Flags which specific wells and risk types need closer monitoring or mitigation."),
       plot_card("Well risk ranking — total expected delay per well", "well_risk_ranking_plot", "420px",
@@ -1082,7 +1090,8 @@ ui <- page_sidebar(
           uiOutput("opt_apply_ui"),
           uiOutput("opt_reproducibility_panel")
         ),
-        plot_card("Trade-off frontier", "pareto_plot", "440px")
+        plot_card("Trade-off frontier", "pareto_plot", "440px",
+                  decision = "Pick a configuration on the dashed frontier: anything off it is both slower and more expensive than an alternative already tested. Moving right along the frontier trades schedule for lower mobilisation cost.")
       ),
       card(
         full_screen = TRUE,
@@ -3478,8 +3487,10 @@ server <- function(input, output, session) {
 
   output$scurve_plot   <- renderPlot({ req(sim_results()); plot_campaign_scurve(sim_results()$summary) }, res = 96)
   output$duration_plot <- renderPlot({ req(sim_results()); plot_campaign_distribution(sim_results()$summary) }, res = 96)
-  output$risk_heatmap_plot <- renderPlot({ plot_schedule_risk_heatmap(risk_heatmap_r()) }, res = 96)
-  output$well_risk_ranking_plot <- renderPlot({ plot_well_risk_ranking(risk_heatmap_r()) }, res = 96)
+  # Single "Top 10 / Show all" detail switch for every chart on the Risks tab.
+  risks_top_n <- reactive(if (identical(input$risks_detail, "all")) Inf else 10L)
+  output$risk_heatmap_plot <- renderPlot({ plot_schedule_risk_heatmap(risk_heatmap_r(), top_n_risks = risks_top_n()) }, res = 96)
+  output$well_risk_ranking_plot <- renderPlot({ plot_well_risk_ranking(risk_heatmap_r(), top_n = risks_top_n()) }, res = 96)
   output$well_risk_table <- renderDT({
     ws <- risk_heatmap_r()$well_scores
     req(ws, nrow(ws) > 0)
@@ -3506,8 +3517,8 @@ server <- function(input, output, session) {
       )
   })
 
-  output$tornado_plot  <- renderPlot({ plot_risk_tornado(stage_risk_r()) }, res = 96)
-  output$consequence_plot <- renderPlot({ plot_risk_consequences(consequences_r()) }, res = 96)
+  output$tornado_plot  <- renderPlot({ plot_risk_tornado(stage_risk_r(), top_n = risks_top_n()) }, res = 96)
+  output$consequence_plot <- renderPlot({ plot_risk_consequences(consequences_r(), top_n = risks_top_n()) }, res = 96)
   output$consequence_table <- renderDT({
     cq <- consequences_r()
     req(cq)
@@ -3527,8 +3538,8 @@ server <- function(input, output, session) {
       ) %>%
       datatable(options = list(pageLength = 12, scrollX = TRUE), rownames = FALSE)
   })
-  output$delay_plot    <- renderPlot({ plot_delay_contributors(delay_r()) }, res = 96)
-  output$stage_risk_plot <- renderPlot({ plot_stage_level_risks(stage_risk_r()) }, res = 96)
+  output$delay_plot    <- renderPlot({ plot_delay_contributors(delay_r(), top_n = risks_top_n()) }, res = 96)
+  output$stage_risk_plot <- renderPlot({ plot_stage_level_risks(stage_risk_r(), top_n = risks_top_n()) }, res = 96)
   output$gantt_plot <- renderPlot({ plot_resource_gantt(timeline_r()) }, res = 96)
   output$bottleneck_plot <- renderPlot({ plot_bottlenecks(bottlenecks_r()) }, res = 96)
   output$wireline_constraint_plot <- renderPlot({ plot_wireline_constraint(wireline_r()) }, res = 96)

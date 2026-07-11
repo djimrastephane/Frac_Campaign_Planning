@@ -549,7 +549,9 @@ plot_risk_tornado <- function(stage_risk_summary, top_n = 8) {
     scale_x_continuous(expand = expansion(mult = c(0, 0.18))) +
     labs(
       title = "Expected schedule impact per campaign",
-      subtitle = "By operation mode",
+      subtitle = if (is.finite(top_n)) {
+        sprintf("Top %d risk events by expected delay, by operation mode", top_n)
+      } else "All risk events, by operation mode",
       x = "Expected delay, days / campaign",
       y = NULL,
       fill = NULL
@@ -562,12 +564,20 @@ plot_delay_contributors <- function(delay_summary, top_n = 10) {
     return(ggplot() + labs(title = "No risk events triggered"))
   }
 
-  plot_df <- delay_summary %>%
+  by_mode <- delay_summary %>%
     group_by(operation_mode, risk_event) %>%
-    summarise(total_delay_days = sum(total_delay_days, na.rm = TRUE), .groups = "drop") %>%
-    arrange(desc(total_delay_days)) %>%
-    slice_head(n = top_n) %>%
-    mutate(risk_event = reorder(wrap_lbl(risk_event), total_delay_days))
+    summarise(total_delay_days = sum(total_delay_days, na.rm = TRUE), .groups = "drop")
+
+  # Rank risk EVENTS (summed across modes), not mode-x-event rows: with two
+  # modes a row-based top-10 silently showed only ~5 events.
+  top_events <- by_mode %>%
+    group_by(risk_event) %>%
+    summarise(tot = sum(total_delay_days), .groups = "drop") %>%
+    slice_max(tot, n = top_n, with_ties = FALSE)
+
+  plot_df <- by_mode %>%
+    filter(risk_event %in% top_events$risk_event) %>%
+    mutate(risk_event = reorder(wrap_lbl(risk_event), total_delay_days, FUN = sum))
 
   ggplot(plot_df, aes(x = risk_event, y = total_delay_days, fill = operation_mode)) +
     geom_col(position = position_dodge2(preserve = "single"), width = 0.75) +
@@ -576,6 +586,9 @@ plot_delay_contributors <- function(delay_summary, top_n = 10) {
     scale_y_continuous(labels = scales::label_comma()) +
     labs(
       title = "Top delay contributors",
+      subtitle = if (is.finite(top_n)) {
+        sprintf("Top %d risk events by total delay across simulations", top_n)
+      } else "All risk events",
       x = NULL,
       y = "Total delay days across simulations",
       fill = NULL
@@ -612,12 +625,20 @@ plot_stage_level_risks <- function(stage_risk_summary, top_n = 10) {
     return(ggplot() + labs(title = "No stage-level risk events triggered"))
   }
 
-  plot_df <- stage_risk_summary %>%
+  by_mode <- stage_risk_summary %>%
     group_by(operation_mode, risk_event) %>%
-    summarise(expected_events_per_campaign = sum(expected_events_per_campaign, na.rm = TRUE), .groups = "drop") %>%
-    arrange(desc(expected_events_per_campaign)) %>%
-    slice_head(n = top_n) %>%
-    mutate(risk_event = reorder(wrap_lbl(risk_event), expected_events_per_campaign))
+    summarise(expected_events_per_campaign = sum(expected_events_per_campaign, na.rm = TRUE), .groups = "drop")
+
+  # Rank risk EVENTS (summed across modes), not mode-x-event rows: with two
+  # modes a row-based top-10 silently showed only ~5 events.
+  top_events <- by_mode %>%
+    group_by(risk_event) %>%
+    summarise(tot = sum(expected_events_per_campaign), .groups = "drop") %>%
+    slice_max(tot, n = top_n, with_ties = FALSE)
+
+  plot_df <- by_mode %>%
+    filter(risk_event %in% top_events$risk_event) %>%
+    mutate(risk_event = reorder(wrap_lbl(risk_event), expected_events_per_campaign, FUN = sum))
 
   ggplot(plot_df, aes(x = risk_event, y = expected_events_per_campaign, fill = operation_mode)) +
     geom_col(position = position_dodge2(preserve = "single"), width = 0.75) +
@@ -625,6 +646,9 @@ plot_stage_level_risks <- function(stage_risk_summary, top_n = 10) {
     scale_fill_mode() +
     labs(
       title = "Expected stage-level risk events per campaign",
+      subtitle = if (is.finite(top_n)) {
+        sprintf("Top %d risk events by expected occurrences", top_n)
+      } else "All risk events",
       x = NULL,
       y = "Expected events per campaign",
       fill = NULL
@@ -1040,7 +1064,10 @@ plot_risk_consequences <- function(consequences, top_n = 10) {
                        expand = expansion(mult = c(0, 0.08))) +
     labs(
       title = "Risk impact: direct delay vs induced workload",
-      subtitle = "Induced components are operational consequences propagated into resource workloads.",
+      subtitle = paste0(
+        if (is.finite(top_n)) sprintf("Top %d risk events by total impact. ", top_n) else "All risk events. ",
+        "Induced components are operational consequences propagated into resource workloads."
+      ),
       x = "Total days across simulations", y = NULL, fill = NULL
     ) +
     theme_frac()
@@ -1133,32 +1160,71 @@ plot_cascade_utilization <- function(cascade) {
 }
 
 # Pareto frontier of scenario optimiser results.
+# Readable without training: dominated configs are faded grey context, the
+# efficient frontier is the dashed line of coloured triangles, and every
+# frontier point is labelled with its resource counts so the reader never has
+# to cross-reference the results table. Recommended/Fastest roles are folded
+# into those labels instead of floating as separate text.
 plot_pareto_frontier <- function(optim_results) {
   if (is.null(optim_results) || nrow(optim_results) == 0) {
     return(ggplot() + labs(title = "Run the optimiser to see the trade-off frontier"))
   }
 
-  front <- optim_results %>% filter(pareto) %>% arrange(p50_days)
-  rec   <- optim_results %>% filter(recommended)
-  fast  <- optim_results %>% filter(fastest) %>% slice(1)
+  df <- optim_results %>%
+    mutate(
+      cost_m = total_mobilisation_cost / 1e6,
+      short_label = paste0(
+        "FF", frac_fleets, " WL", wireline_units, " CT", ct_units,
+        " ML", milling_units, " TU", testing_units,
+        ifelse(allow_ct_for_milling, " +CTmill", "")
+      )
+    )
 
-  ggplot(optim_results,
-         aes(p50_days, total_mobilisation_cost / 1e6, colour = operation_mode)) +
-    geom_point(aes(shape = pareto, size = pareto), alpha = 0.75) +
-    geom_line(data = front, aes(group = 1), colour = "grey40",
-              linetype = "dashed", linewidth = 0.5) +
-    geom_point(data = rec,  size = 5.5, shape = 18, colour = "#009E73") +
-    geom_text(data = rec,  aes(label = "Recommended"), vjust = -1.2,
-              size = 3.6, fontface = "bold", colour = "#009E73", show.legend = FALSE) +
-    geom_text(data = fast, aes(label = "Fastest"), vjust = -1.2,
-              size = 3.3, colour = "grey35", show.legend = FALSE) +
+  front     <- df %>% filter(pareto) %>% arrange(p50_days)
+  dominated <- df %>% filter(!pareto)
+  rec       <- front %>% filter(recommended)
+
+  front_lab <- front %>%
+    mutate(point_label = case_when(
+      recommended & fastest ~ paste0("RECOMMENDED & FASTEST\n", short_label),
+      recommended           ~ paste0("RECOMMENDED\n", short_label),
+      fastest               ~ paste0("FASTEST\n", short_label),
+      TRUE                  ~ short_label
+    ))
+
+  label_layer <- if (requireNamespace("ggrepel", quietly = TRUE)) {
+    ggrepel::geom_text_repel(
+      data = front_lab, aes(label = point_label),
+      size = 2.9, fontface = "bold", lineheight = 0.95, colour = "grey15",
+      bg.color = "white", bg.r = 0.12, box.padding = 0.5, point.padding = 0.3,
+      min.segment.length = 0, segment.colour = "grey60", seed = 42,
+      show.legend = FALSE
+    )
+  } else {
+    geom_text(
+      data = front_lab, aes(label = point_label),
+      size = 2.9, fontface = "bold", lineheight = 0.95, colour = "grey15",
+      vjust = -0.8, show.legend = FALSE
+    )
+  }
+
+  ggplot(front, aes(p50_days, cost_m, colour = operation_mode)) +
+    geom_point(data = dominated, colour = "grey72", size = 1.9, alpha = 0.55) +
+    geom_line(data = front, aes(group = 1), colour = "grey45",
+              linetype = "dashed", linewidth = 0.55) +
+    geom_point(size = 3.4, shape = 17) +
+    geom_point(data = rec, size = 6, shape = 18, colour = "#009E73") +
+    label_layer +
     scale_colour_mode() +
-    scale_shape_manual(values = c(`TRUE` = 17, `FALSE` = 16), guide = "none") +
-    scale_size_manual(values  = c(`TRUE` = 3.4, `FALSE` = 2.2), guide = "none") +
     scale_y_continuous(labels = scales::label_dollar(suffix = "M")) +
     labs(
-      x = "P50 campaign duration, days",
-      y = "Total mobilisation cost",
+      subtitle = paste0(
+        "Each point = one tested configuration. Grey = dominated: another config is both faster and cheaper.\n",
+        "Triangles on the dashed line = the efficient frontier; labels give resource counts\n",
+        "(FF frac fleets, WL wireline, CT coiled tubing, ML milling, TU testing units)."
+      ),
+      x = "P50 campaign duration, days  (further left = faster)",
+      y = "Total mobilisation cost  (lower = cheaper)",
       colour = NULL
     ) +
     theme_frac()
@@ -1331,7 +1397,10 @@ plot_schedule_risk_heatmap <- function(heatmap_data, top_n_risks = 10L) {
     {if (n_modes > 1) facet_wrap(~operation_mode, ncol = 1, scales = "free_x") else NULL} +
     labs(
       title    = "Schedule risk heatmap \u2014 expected delay by well and risk type",
-      subtitle = sprintf("Top %d risk events; colour = expected delay days per campaign", top_n_risks),
+      subtitle = paste0(
+        if (is.finite(top_n_risks)) sprintf("Top %d risk events", top_n_risks) else "All risk events",
+        "; colour = expected delay days per campaign"
+      ),
       x        = "Well",
       y        = NULL
     ) +
@@ -1383,7 +1452,10 @@ plot_well_risk_ranking <- function(heatmap_data, top_n = 15L) {
                        labels = function(x) sprintf("%.1f d", x)) +
     labs(
       title    = "Well risk ranking \u2014 total expected delay contribution",
-      subtitle = sprintf("Top %d wells per mode, ranked by total expected delay across all risk types", top_n),
+      subtitle = paste0(
+        if (is.finite(top_n)) sprintf("Top %d wells per mode", top_n) else "All wells",
+        ", ranked by total expected delay across all risk types"
+      ),
       x        = "Expected delay (days)",
       y        = NULL
     ) +
