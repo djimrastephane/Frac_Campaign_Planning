@@ -326,8 +326,7 @@ Each is diagrammed in [`docs/architecture.md`](docs/architecture.md).
 | **Bayesian Update** | Upload new completed-well observations; Normal-Normal conjugate duration update with prior vs posterior density overlay; Beta-Binomial risk probability update; merged dataset fed back to next simulation |
 | **What-If** | Define named variants (resource counts, timing, efficiency overrides); P10/P50/P90 bar chart with error bars; S-curve overlay; readiness and bottleneck per variant |
 | **Risks** | Schedule risk heatmap (well × risk-event expected delay), well risk ranking and classification, tornado, consequence propagation (direct vs induced), top delay contributors, stage-level risks, detail tables |
-| **Resources** | Deployment timeline (Gantt-style), utilization, bottleneck detection, recommended actions, cost impact |
-| **Wireline & Readiness** | Stage-readiness constraint breakdown, readiness score |
+| **Resources** | Deployment timeline (Gantt-style), utilization, bottleneck detection, recommended actions, cost impact, wireline stage-readiness constraint deep-dive |
 | **Optimiser** | Constraint cascade (greedy sequential fix, ROI per step) + Pareto grid search |
 | **Workflow** | Operational sequence viewer, instructions for adapting the model |
 | **Audit & Data** | Input fidelity check, full results, well details, risk event log, assumptions used |

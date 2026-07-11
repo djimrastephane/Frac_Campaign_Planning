@@ -703,26 +703,6 @@ plot_wireline_constraint <- function(wireline_summary) {
     theme_frac()
 }
 
-plot_readiness_score <- function(readiness_score) {
-  if (is.null(readiness_score) || nrow(readiness_score) == 0) {
-    return(ggplot() + labs(title = "No readiness score data"))
-  }
-
-  ggplot(readiness_score, aes(x = operation_mode, y = readiness_score, fill = readiness_status)) +
-    geom_col(width = 0.5) +
-    geom_text(aes(label = paste0(round(readiness_score, 0), " / 100")),
-              vjust = -0.5, size = 4.4, fontface = "bold") +
-    coord_cartesian(ylim = c(0, 105)) +
-    scale_fill_status() +
-    labs(
-      title = "Campaign readiness score",
-      x = NULL,
-      y = "Readiness score",
-      fill = NULL
-    ) +
-    theme_frac()
-}
-
 plot_resource_recommendations <- function(recommendations) {
   if (is.null(recommendations) || nrow(recommendations) == 0) {
     return(ggplot() + labs(title = "No resource recommendation data"))

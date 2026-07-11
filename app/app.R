@@ -996,15 +996,12 @@ ui <- page_sidebar(
       table_card("Recommended actions", dt_wrap("recommendation_table", "320px")),
       table_card("Cost impact detail", dt_wrap("cost_impact_table", "400px")),
       table_card("Utilization detail", dt_wrap("resource_table", "300px")),
-      table_card("Bottleneck detail", dt_wrap("bottleneck_table", "300px"))
-    ),
+      table_card("Bottleneck detail", dt_wrap("bottleneck_table", "300px")),
 
-    nav_panel(
-      "Wireline & Readiness",
-      plot_card("Wireline stage-readiness constraint", "wireline_constraint_plot", "460px"),
-      plot_card("Campaign readiness score", "readiness_plot", "380px"),
-      table_card("Wireline constraint detail", dt_wrap("wireline_constraint_table", "220px")),
-      table_card("Readiness breakdown", dt_wrap("readiness_table", "220px"))
+      # --- Wireline deep-dive: why wireline constrains the schedule ---
+      plot_card("Wireline stage-readiness constraint", "wireline_constraint_plot", "460px",
+                decision = "Breaks wireline time into its components and shows the frac-fleet days lost waiting on wireline, so capacity fixes target the right component."),
+      table_card("Wireline constraint detail", dt_wrap("wireline_constraint_table", "220px"))
     ),
 
     nav_panel(
@@ -3538,7 +3535,6 @@ server <- function(input, output, session) {
   output$resource_plot <- renderPlot({ plot_resource_utilization(resource_summary_r()) }, res = 96)
   output$bottleneck_plot <- renderPlot({ plot_bottlenecks(bottlenecks_r()) }, res = 96)
   output$wireline_constraint_plot <- renderPlot({ plot_wireline_constraint(wireline_r()) }, res = 96)
-  output$readiness_plot <- renderPlot({ plot_readiness_score(readiness_r()) }, res = 96)
   output$recommendation_plot <- renderPlot({ plot_resource_recommendations(recommendations_r()) }, res = 96)
   output$cost_impact_plot <- renderPlot({ plot_cost_impact(cost_impact_r()) }, res = 96)
 
@@ -3580,7 +3576,6 @@ server <- function(input, output, session) {
                   color = styleEqual(c("Green", "Amber", "Red"), c("#1b9e77", "#e6ab02", "#d62728")),
                   fontWeight = "bold")
   })
-  output$readiness_table  <- renderDT({ datatable(safe_round_df(readiness_r(), 3), options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) })
   output$recommendation_table <- renderDT({ datatable(safe_round_df(recommendations_r(), 2), options = list(pageLength = 10, scrollX = TRUE), rownames = FALSE) })
   output$cost_impact_table <- renderDT({ datatable(safe_round_df(cost_impact_r(), 2), options = list(pageLength = 15, scrollX = TRUE), rownames = FALSE) })
   output$delay_table      <- renderDT({ dt_simple(delay_r(), page = 15) })
