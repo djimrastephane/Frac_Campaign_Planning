@@ -246,4 +246,27 @@ save_png(
   "05_optimiser.png", w = 1400, h = 1100
 )
 
+# ---------------------------------------------------------------------------
+# 13 — Audit & Data (input fidelity check)
+# ---------------------------------------------------------------------------
+# The rest of this tab is DT result/detail tables, not ggplot output, so the
+# fidelity chart -- the tab's one chart, and the only part meaningfully
+# captured as a static image -- is shown standalone, at the same size as its
+# in-app plot_card (420px tall), rather than forced into a multi-panel
+# composite with placeholder table grids.
+cat("\n[13] Audit & Data — input fidelity check...\n")
+p_fidelity <- plot_input_validation(
+  HISTORICAL, sim_conv$well_details,
+  frac_time_per_stage_hours = BASE_CONV$frac_time_per_stage_hours %||% 12
+)
+
+save_png(
+  p_fidelity +
+    plot_annotation(
+      title = "Audit & Data — input fidelity check",
+      theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+    ),
+  "13_audit_data.png", w = 1400, h = 820
+)
+
 cat("\nAll tab screenshots generated successfully.\n")

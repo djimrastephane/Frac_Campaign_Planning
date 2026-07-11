@@ -205,6 +205,12 @@ trust the app and regenerate via `Rscript generate_screenshots.R` and
 ### Risk Editor — in-app editable grids, no CSV authoring required
 ![Risk Editor tab](docs/images/screenshots/12_risk_editor.png)
 
+### Audit & Data — input fidelity check
+*Simulated milling-days-per-plug draws vs. the historical wells they were bootstrapped from. The rest
+of this tab (executive KPIs, full results, well details, risk event log, assumptions used) is DT tables,
+not shown here.*
+![Audit and Data tab](docs/images/screenshots/13_audit_data.png)
+
 ---
 
 # Operational Logic
