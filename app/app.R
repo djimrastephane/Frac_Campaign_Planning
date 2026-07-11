@@ -853,40 +853,43 @@ ui <- page_sidebar(
           tags$hr(),
           tags$h6("Variant 1"),
           layout_columns(
-            col_widths = c(3, 2, 2, 2, 2, 1),
+            col_widths = c(3, 2, 1, 1, 1, 1, 1),
             textInput("wif_v1_label", "Label", placeholder = "e.g. +1 Frac fleet"),
             selectInput("wif_v1_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
             numericInput("wif_v1_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
             numericInput("wif_v1_wl",    "Wireline units", value = NULL, min = 1, max = 5),
             numericInput("wif_v1_ct",    "CT units", value = NULL, min = 1, max = 5),
-            numericInput("wif_v1_ml",    "Milling units", value = NULL, min = 1, max = 5)
+            numericInput("wif_v1_ml",    "Milling units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v1_tu",    "Testing units", value = NULL, min = 1, max = 5)
           ),
 
           # Variant 2
           tags$h6("Variant 2"),
           layout_columns(
-            col_widths = c(3, 2, 2, 2, 2, 1),
+            col_widths = c(3, 2, 1, 1, 1, 1, 1),
             textInput("wif_v2_label", "Label", placeholder = "e.g. Zipper mode"),
             selectInput("wif_v2_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
             numericInput("wif_v2_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
             numericInput("wif_v2_wl",    "Wireline units", value = NULL, min = 1, max = 5),
             numericInput("wif_v2_ct",    "CT units", value = NULL, min = 1, max = 5),
-            numericInput("wif_v2_ml",    "Milling units", value = NULL, min = 1, max = 5)
+            numericInput("wif_v2_ml",    "Milling units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v2_tu",    "Testing units", value = NULL, min = 1, max = 5)
           ),
 
           # Variant 3
           tags$h6("Variant 3"),
           layout_columns(
-            col_widths = c(3, 2, 2, 2, 2, 1),
+            col_widths = c(3, 2, 1, 1, 1, 1, 1),
             textInput("wif_v3_label", "Label", placeholder = "e.g. +1 WL +1 FF"),
             selectInput("wif_v3_mode", "Mode",
               choices = c("(same as base)" = "", "Conventional", "Zipper"), selected = ""),
             numericInput("wif_v3_frac",  "Frac fleets", value = NULL, min = 1, max = 5),
             numericInput("wif_v3_wl",    "Wireline units", value = NULL, min = 1, max = 5),
             numericInput("wif_v3_ct",    "CT units", value = NULL, min = 1, max = 5),
-            numericInput("wif_v3_ml",    "Milling units", value = NULL, min = 1, max = 5)
+            numericInput("wif_v3_ml",    "Milling units", value = NULL, min = 1, max = 5),
+            numericInput("wif_v3_tu",    "Testing units", value = NULL, min = 1, max = 5)
           ),
 
           tags$hr(),
@@ -2134,7 +2137,7 @@ server <- function(input, output, session) {
     req(sim_results())
 
     # Build variants from the three UI rows; skip any with a blank label.
-    .wif_variant <- function(label_in, mode_in, frac_in, wl_in, ct_in, ml_in) {
+    .wif_variant <- function(label_in, mode_in, frac_in, wl_in, ct_in, ml_in, tu_in) {
       lbl <- trimws(label_in)
       if (!nzchar(lbl)) return(NULL)
       overrides <- list()
@@ -2143,16 +2146,17 @@ server <- function(input, output, session) {
       if (!is.na(wl_in))   overrides$wireline_units <- as.integer(wl_in)
       if (!is.na(ct_in))   overrides$ct_units        <- as.integer(ct_in)
       if (!is.na(ml_in))   overrides$milling_units   <- as.integer(ml_in)
+      if (!is.na(tu_in))   overrides$testing_units    <- as.integer(tu_in)
       setNames(list(overrides), lbl)
     }
 
     variants <- c(
       .wif_variant(input$wif_v1_label, input$wif_v1_mode, input$wif_v1_frac,
-                   input$wif_v1_wl, input$wif_v1_ct, input$wif_v1_ml),
+                   input$wif_v1_wl, input$wif_v1_ct, input$wif_v1_ml, input$wif_v1_tu),
       .wif_variant(input$wif_v2_label, input$wif_v2_mode, input$wif_v2_frac,
-                   input$wif_v2_wl, input$wif_v2_ct, input$wif_v2_ml),
+                   input$wif_v2_wl, input$wif_v2_ct, input$wif_v2_ml, input$wif_v2_tu),
       .wif_variant(input$wif_v3_label, input$wif_v3_mode, input$wif_v3_frac,
-                   input$wif_v3_wl, input$wif_v3_ct, input$wif_v3_ml)
+                   input$wif_v3_wl, input$wif_v3_ct, input$wif_v3_ml, input$wif_v3_tu)
     )
 
     base_args <- sim_results()$args_by_mode[[focus_mode_r()]]
