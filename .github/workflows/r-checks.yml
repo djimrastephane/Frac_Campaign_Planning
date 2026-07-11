@@ -31,6 +31,8 @@ jobs:
             any::readr
             any::janitor
             any::scales
+            any::digest
+            any::jsonlite
 
       - name: Run check_regression.R (fast engine vs. original, bit-identical)
         working-directory: R

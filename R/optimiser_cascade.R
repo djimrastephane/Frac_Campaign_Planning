@@ -40,13 +40,27 @@ optimise_campaign_scenarios <- function(
       cfg$ct_units * ct_cost_per_day +
       cfg$milling_units * milling_cost_per_day +
       cfg$testing_units * testing_unit_cost_per_day
+    # Phase 2 (auditability pass): binding-path visibility. Diagnostic only
+    # -- does not feed p50/p90/idle/cost/pareto/recommendation, so scoring
+    # and Pareto classification are unaffected. See optimiser_explain.R.
+    bp <- summarise_binding_path(sm)
+    util <- summarise_scenario_utilization(run$resource_utilization)
+    util_of <- function(nm) if (nm %in% names(util)) as.numeric(util[[nm]]) else NA_real_
     tibble(
       p50_days = as.numeric(p50),
       p90_days = as.numeric(p90),
       idle_days = idle_days,
       idle_cost = idle_days * frac_fleet_cost_per_day,
       spread_rate_per_day = spread_rate,
-      total_mobilisation_cost = spread_rate * as.numeric(p50)
+      total_mobilisation_cost = spread_rate * as.numeric(p50),
+      frac_path_bind_pct = bp$frac_path_bind_pct,
+      post_frac_bind_pct = bp$post_frac_bind_pct,
+      binding_path_primary = bp$binding_path_primary,
+      p90_util_frac_fleet = util_of("Frac fleet"),
+      p90_util_wireline = util_of("Wireline"),
+      p90_util_ct = util_of("CT / cleanout"),
+      p90_util_milling = util_of("Milling"),
+      p90_util_testing = util_of("Testing unit")
     )
   }
 

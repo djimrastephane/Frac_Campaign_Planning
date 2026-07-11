@@ -20,7 +20,8 @@
 stopifnot(
   file.exists("archive/simulation_engine.R"),
   file.exists("engine_core.R"), file.exists("summaries.R"),
-  file.exists("report_pdf.R"), file.exists("optimiser_cascade.R")
+  file.exists("report_pdf.R"), file.exists("optimiser_cascade.R"),
+  file.exists("optimiser_explain.R")
 )
 
 orig <- new.env(); sys.source("archive/simulation_engine.R", envir = orig)
@@ -28,6 +29,10 @@ fast <- new.env()
 sys.source("engine_core.R",       envir = fast)
 sys.source("summaries.R",         envir = fast)
 sys.source("report_pdf.R",        envir = fast)
+# constants.R defines the OPTIMISER_BINDING_* thresholds optimiser_explain.R
+# reads as default argument values -- must be in `fast` before it.
+sys.source("constants.R",         envir = fast)
+sys.source("optimiser_explain.R", envir = fast)  # Phase 2 binding-path columns on optimise_campaign_scenarios()'s output -- diagnostic only, not compared below (see `keep`)
 sys.source("optimiser_cascade.R", envir = fast)
 sys.source("risk_library_engine.R", envir = fast)  # build_risk_table(); risk_library defaults to NULL, no behavior change
 

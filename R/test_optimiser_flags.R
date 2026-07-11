@@ -12,7 +12,7 @@
 #    "idle" covers only frac-fleet-awaiting-wireline does not travel with
 #    the bare file.
 ENGINE_FILES <- if (file.exists("engine_core.R")) {
-  c("engine_core.R", "summaries.R", "report_pdf.R", "optimiser_cascade.R")
+  c("engine_core.R", "summaries.R", "report_pdf.R", "constants.R", "optimiser_explain.R", "optimiser_cascade.R")
 } else "archive/simulation_engine.R"
 suppressPackageStartupMessages({
   library(dplyr)
