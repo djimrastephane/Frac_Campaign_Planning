@@ -972,7 +972,7 @@ plot_resource_gantt <- function(timeline) {
     scale_x_continuous(expand = expansion(mult = c(0, 0.22))) +
     labs(
       title = "Active fleet-days per resource",
-      subtitle = "Dashed line = P50 campaign duration. Bars = actual work days.",
+      subtitle = "Dashed line = P50 campaign duration.\nBars = actual work days.",
       x = "Fleet-days of active work", y = NULL
     ) +
     theme_frac() +
@@ -1002,7 +1002,7 @@ plot_resource_gantt <- function(timeline) {
     ) +
     labs(
       title = "Resource occupancy during campaign",
-      subtitle = "Red dashed = 100% (fully utilised). Labels in red = overloaded (bottleneck).",
+      subtitle = "Red dashed = 100% (fully utilised).\nRed labels = overloaded (bottleneck).",
       x = "Active days ÷ campaign days", y = NULL
     ) +
     theme_frac() +
@@ -1219,12 +1219,12 @@ plot_pareto_frontier <- function(optim_results) {
     scale_y_continuous(labels = scales::label_dollar(suffix = "M")) +
     labs(
       subtitle = paste0(
-        "Each point = one tested configuration. Grey = dominated: another config is both faster and cheaper.\n",
-        "Triangles on the dashed line = the efficient frontier; labels give resource counts\n",
-        "(FF frac fleets, WL wireline, CT coiled tubing, ML milling, TU testing units)."
+        "Each point = one tested configuration; down and left is better (faster and cheaper).\n",
+        "Grey = dominated: another config beats it on both axes. Triangles on the dashed line = efficient frontier;\n",
+        "labels give resource counts (FF frac fleets, WL wireline, CT coiled tubing, ML milling, TU testing units)."
       ),
       x = "P50 campaign duration, days  (further left = faster)",
-      y = "Total mobilisation cost  (lower = cheaper)",
+      y = "Total mobilisation cost",
       colour = NULL
     ) +
     theme_frac()

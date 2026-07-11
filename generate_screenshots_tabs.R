@@ -156,11 +156,12 @@ p_rank  <- plot_well_risk_ranking(heatmap_data)
 
 save_png(
   (p_heat / p_rank) +
+    plot_layout(heights = c(1.5, 1)) +
     plot_annotation(
       title = "Risks — schedule risk heatmap and well risk ranking",
       theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
     ),
-  "03_risks.png", w = 1400, h = 1000
+  "03_risks.png", w = 1400, h = 1250
 )
 
 # ---------------------------------------------------------------------------
@@ -168,8 +169,13 @@ save_png(
 # ---------------------------------------------------------------------------
 cat("\n[04] Resources tab...\n")
 p_gantt <- plot_resource_gantt(timeline)
-p_bot   <- plot_bottlenecks(bottlenecks)
-p_rec   <- plot_resource_recommendations(recommendations)
+# Shorter titles for the side-by-side composite row: the full in-app titles
+# are wider than half a PNG and collide across panels.
+p_bot   <- plot_bottlenecks(bottlenecks) +
+  labs(title = "Bottleneck detection (P90 utilization)",
+       subtitle = "Dashed lines: 60% / 85% thresholds")
+p_rec   <- plot_resource_recommendations(recommendations) +
+  labs(title = "Schedule improvement from +1 unit")
 
 save_png(
   (p_gantt / (p_bot | p_rec)) +
@@ -224,7 +230,10 @@ optim_results <- optimise_campaign_scenarios(
   seed              = 42L
 )
 
-p_cascade <- plot_constraint_cascade(cascade)
+# Angled step labels for the composite: at half-PNG width the horizontal
+# labels ("Add 1 Testing unit (-> 3 units)") run into each other.
+p_cascade <- plot_constraint_cascade(cascade) +
+  theme(axis.text.x = element_text(angle = 18, hjust = 1))
 p_cas_util <- plot_cascade_utilization(cascade)
 p_pareto  <- plot_pareto_frontier(optim_results)
 
