@@ -798,12 +798,14 @@ plot_input_validation <- function(historical_wells, well_details,
   df_hist <- tibble::tibble(source = "Historical wells", value = hist_mill)
 
   df_sim <- NULL
+  n_sim_total <- 0L
   if (!is.null(well_details) && nrow(well_details) > 0 &&
       "milling_days_per_plug" %in% names(well_details)) {
     sim_vals <- well_details$milling_days_per_plug
     sim_vals <- sim_vals[!is.na(sim_vals) & sim_vals > 0]
-    # Cap at 2000 draws for rendering speed; stratified by unique value
-    if (length(sim_vals) > 2000) sim_vals <- sample(sim_vals, 2000)
+    n_sim_total <- length(sim_vals)
+    # Random subsample capped at 2000 draws for rendering speed
+    if (n_sim_total > 2000) sim_vals <- sample(sim_vals, 2000)
     df_sim <- tibble::tibble(source = "Simulated draws", value = sim_vals)
   }
 
@@ -822,7 +824,7 @@ plot_input_validation <- function(historical_wells, well_details,
 
   low_n_note <- if (n_hist < 20) {
     sprintf(
-      "Note: only %d historical wells. Bootstrap resampling with small n can produce spiky distributions ",
+      "Note: only %d historical wells. Bootstrap resampling with small n can produce spiky distributions; treat the histogram shape as indicative, not definitive.",
       n_hist
     )
   } else NULL
@@ -840,8 +842,7 @@ plot_input_validation <- function(historical_wells, well_details,
     )
   } else NULL
 
-  caption_text <- paste(c(low_n_note, frac_caption), collapse = "
-")
+  caption_text <- paste(c(low_n_note, frac_caption), collapse = "\n")
 
   # Faceted layout: historical and simulated on separate panels with shared
   # x-axis and identical bin breaks. Fixes the n-disparity problem where
@@ -855,8 +856,20 @@ plot_input_validation <- function(historical_wells, well_details,
 
   facet_labels <- c(
     "Historical wells" = paste0("Historical wells  (n = ", n_hist, ")"),
-    "Simulated draws"  = paste0("Simulated draws  (n = ", nrow(df_sim), ")")
+    "Simulated draws"  = if (n_sim_total > 2000) {
+      sprintf("Simulated draws  (2,000 of %s shown)", scales::comma(n_sim_total))
+    } else {
+      paste0("Simulated draws  (n = ", n_sim_total, ")")
+    }
   )
+
+  # Anchor the historical-well dots just below the axis, scaled to the
+  # historical panel's density range so they neither crowd the axis line on
+  # spiky data nor hang far below it on flat data.
+  bin_w <- diff(shared_breaks)[1]
+  hist_counts <- graphics::hist(hist_mill, breaks = shared_breaks, plot = FALSE)$counts
+  max_dens_hist <- max(hist_counts) / (n_hist * bin_w)
+  dot_y <- -0.08 * max_dens_hist
 
   ggplot(df, aes(value, after_stat(density), fill = source, colour = source)) +
     geom_histogram(breaks = shared_breaks, alpha = 0.75, linewidth = 0.2) +
@@ -867,21 +880,27 @@ plot_input_validation <- function(historical_wells, well_details,
     # directly shows clustering and outliers.
     geom_point(
       data = df_hist %>% dplyr::mutate(source = "Historical wells"),
-      aes(x = value, y = -0.4),
+      aes(x = value, y = dot_y),
       inherit.aes = FALSE,
       shape = 21, size = 3.2, colour = "#0072B2", fill = "#AED6F1",
-      stroke = 0.8, position = position_jitter(height = 0.08, seed = 42)
+      stroke = 0.8,
+      position = position_jitter(height = 0.02 * max_dens_hist, seed = 42)
     ) +
     # Reference lines: vertical dashed lines on both panels
     geom_vline(data = ref, aes(xintercept = value, linetype = metric),
                colour = "#0072B2", linewidth = 0.65, show.legend = TRUE) +
-    # Outlier label in the historical panel
+    # Outlier label in the historical panel. One consolidated label: with
+    # several outliers, per-point labels all pin to y = Inf and overprint.
     {if (length(outliers) > 0)
       geom_text(
         data = data.frame(
-          value = outliers,
+          value = max(outliers),
           source = "Historical wells",
-          label  = paste0("Outlier: ", round(outliers, 2), " d")
+          label  = if (length(outliers) == 1) {
+            sprintf("Outlier: %.2f d", outliers)
+          } else {
+            sprintf("%d outliers ≥ %.2f d", length(outliers), outlier_threshold)
+          }
         ),
         aes(x = value, y = Inf, label = label),
         inherit.aes = FALSE,
@@ -900,11 +919,14 @@ plot_input_validation <- function(historical_wells, well_details,
     scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +
     labs(
       title = "Input fidelity: milling days per plug",
-      subtitle = paste0(
-        "Shared bin breaks across both panels. ",
-        "Dots = individual historical wells (jittered). ",
-        "Dashed lines = historical mean / median."
-      ),
+      subtitle = paste(c(
+        "Dots = individual historical wells (jittered). Dotted line = historical mean; dashed = median.",
+        if (is.null(df_sim)) {
+          "Simulated panel unavailable: Fast mode skips per-well detail. Re-run in Standard or Audit."
+        } else {
+          "Shared bin breaks across both panels."
+        }
+      ), collapse = "\n"),
       x = "Milling days per plug",
       y = "Probability density",
       caption = caption_text

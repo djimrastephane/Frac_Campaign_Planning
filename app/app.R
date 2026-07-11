@@ -1768,7 +1768,12 @@ server <- function(input, output, session) {
             risk_event_log = dplyr::bind_rows(lapply(results_only, `[[`, "risk_event_log")),
             resource_utilization = dplyr::bind_rows(lapply(results_only, `[[`, "resource_utilization")),
             assumptions_used = dplyr::bind_rows(lapply(results_only, `[[`, "assumptions_used")) %>% dplyr::distinct(),
-            args_by_mode = args_by_mode
+            args_by_mode = args_by_mode,
+            # The historical set THIS run bootstrapped from (the merged
+            # Bayesian set when one was active). The input-fidelity chart
+            # must compare against this, not whatever the upload reactive
+            # holds when the chart renders.
+            historical_wells_used = historical_for_sim
           )
         }, error = function(e) {
           list(ok = FALSE, error = conditionMessage(e))
@@ -3457,7 +3462,12 @@ server <- function(input, output, session) {
   output$validation_plot <- renderPlot({
     dat <- input_data()
     req(isTRUE(dat$ok), sim_results())
-    plot_input_validation(dat$historical, sim_results()$well_details,
+    # Compare against the historical set the displayed run actually
+    # bootstrapped from -- after a Bayesian update the simulation uses the
+    # merged wells, and comparing its draws to the original upload makes the
+    # simulated panel appear to sample outside the historical bounds.
+    hist_used <- sim_results()$historical_wells_used %||% dat$historical
+    plot_input_validation(hist_used, sim_results()$well_details,
                           frac_time_per_stage_hours = input$frac_time_per_stage_hours)
   }, res = 96)
 
