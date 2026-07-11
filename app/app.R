@@ -985,8 +985,6 @@ ui <- page_sidebar(
       "Resources",
       plot_card("Resource utilization: active days and utilization by mode", "gantt_plot", "420px",
                 decision = "Identifies which resources are close to becoming campaign bottlenecks."),
-      plot_card("Mean resource utilization", "resource_plot", "420px",
-                decision = "Identifies which resources are close to becoming campaign bottlenecks."),
       plot_card("Bottleneck detection (P90 utilization)", "bottleneck_plot", "420px",
                 decision = "Shows which resource is most likely to limit the schedule in a worst-case run."),
       plot_card("Estimated schedule improvement from additional resources", "recommendation_plot", "420px",
@@ -3532,7 +3530,6 @@ server <- function(input, output, session) {
   output$delay_plot    <- renderPlot({ plot_delay_contributors(delay_r()) }, res = 96)
   output$stage_risk_plot <- renderPlot({ plot_stage_level_risks(stage_risk_r()) }, res = 96)
   output$gantt_plot <- renderPlot({ plot_resource_gantt(timeline_r()) }, res = 96)
-  output$resource_plot <- renderPlot({ plot_resource_utilization(resource_summary_r()) }, res = 96)
   output$bottleneck_plot <- renderPlot({ plot_bottlenecks(bottlenecks_r()) }, res = 96)
   output$wireline_constraint_plot <- renderPlot({ plot_wireline_constraint(wireline_r()) }, res = 96)
   output$recommendation_plot <- renderPlot({ plot_resource_recommendations(recommendations_r()) }, res = 96)

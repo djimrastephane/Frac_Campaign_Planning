@@ -583,28 +583,6 @@ plot_delay_contributors <- function(delay_summary, top_n = 10) {
     theme_frac()
 }
 
-plot_resource_utilization <- function(resource_summary) {
-  if (is.null(resource_summary) || nrow(resource_summary) == 0) {
-    return(ggplot() + labs(title = "No resource utilization data"))
-  }
-
-  ggplot(resource_summary, aes(x = resource, y = mean_utilization, fill = operation_mode)) +
-    geom_col(position = position_dodge2(preserve = "single"), width = 0.7) +
-    geom_text(aes(label = scales::percent(mean_utilization, accuracy = 1)),
-              position = position_dodge2(width = 0.7, preserve = "single"),
-              vjust = -0.4, size = 3.8) +
-    scale_fill_mode() +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 1),
-                       expand = expansion(mult = c(0, 0.12))) +
-    labs(
-      title = "Mean resource utilization",
-      x = NULL,
-      y = "Mean utilization",
-      fill = NULL
-    ) +
-    theme_frac()
-}
-
 plot_bottlenecks <- function(bottleneck_summary) {
   if (is.null(bottleneck_summary) || nrow(bottleneck_summary) == 0) {
     return(ggplot() + labs(title = "No bottleneck data"))

@@ -168,12 +168,11 @@ save_png(
 # ---------------------------------------------------------------------------
 cat("\n[04] Resources tab...\n")
 p_gantt <- plot_resource_gantt(timeline)
-p_util  <- plot_resource_utilization(resource_summary)
 p_bot   <- plot_bottlenecks(bottlenecks)
 p_rec   <- plot_resource_recommendations(recommendations)
 
 save_png(
-  (p_gantt / (p_util | p_bot | p_rec)) +
+  (p_gantt / (p_bot | p_rec)) +
     plot_annotation(
       title = "Resources — deployment timeline, utilization, bottleneck detection and recommendations",
       theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
