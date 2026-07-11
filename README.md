@@ -182,7 +182,7 @@ tradeoffs, operational risk, resource bottlenecks, and cost/schedule optimizatio
 the full tab-by-tab set (Workflow reference, Historical Learning, Sensitivity, Bayesian
 Update, What-If, Risk Heatmap), see `docs/images/screenshots/`.*
 
-*Last refreshed: 2026-07-11 (commit `3466480`). UI labels and panels can drift out of sync
+*Last refreshed: 2026-07-11 (commit `4c5c8b4`). UI labels and panels can drift out of sync
 with these images between refreshes — if something below doesn't match the running app,
 trust the app and regenerate via `Rscript generate_screenshots.R` and
 `Rscript generate_screenshots_tabs.R`.*
