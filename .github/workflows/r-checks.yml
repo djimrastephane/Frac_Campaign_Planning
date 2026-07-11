@@ -21,18 +21,14 @@ jobs:
         with:
           r-version: "4.5"
 
+      # Installs from the repo-root DESCRIPTION's Imports (its own comment
+      # names it "the single source of truth for dependencies") instead of a
+      # hardcoded package list here that has to be kept in sync by hand --
+      # PR #71 added two new Imports (digest, jsonlite) and CI failed twice
+      # because this list wasn't updated to match.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          packages: |
-            any::dplyr
-            any::tibble
-            any::tidyr
-            any::stringr
-            any::readr
-            any::janitor
-            any::scales
-            any::digest
-            any::jsonlite
+          dependencies: '"Imports"'
 
       - name: Run check_regression.R (fast engine vs. original, bit-identical)
         working-directory: R
