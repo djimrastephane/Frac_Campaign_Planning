@@ -29,7 +29,8 @@ Imports:
     jsonlite,
     htmlwidgets,
     htmltools,
-    scales
+    scales,
+    digest
 Suggests:
     gridExtra,
     cowplot,

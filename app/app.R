@@ -60,7 +60,9 @@ source(file.path(project_root, "R", "validate_risk_consequence_library.R"))
 source(file.path(project_root, "R", "engine_core.R"))
 source(file.path(project_root, "R", "summaries.R"))
 source(file.path(project_root, "R", "report_pdf.R"))
+source(file.path(project_root, "R", "optimiser_explain.R"))
 source(file.path(project_root, "R", "optimiser_cascade.R"))
+source(file.path(project_root, "R", "optimiser_manifest.R"))
 source(file.path(project_root, "R", "risk_library_engine.R"))
 source(file.path(project_root, "R", "optimiser_parallel.R"))
 source(file.path(project_root, "R", "risk_uncertainty.R"))
@@ -1079,15 +1081,31 @@ ui <- page_sidebar(
           full_screen = TRUE,
           card_header("Recommended scenario"),
           uiOutput("opt_recommendation"),
-          uiOutput("opt_apply_ui")
+          uiOutput("opt_apply_ui"),
+          uiOutput("opt_reproducibility_panel")
         ),
         plot_card("Trade-off frontier", "pareto_plot", "440px")
       ),
       card(
         full_screen = TRUE,
         card_header("All scenarios (sorted by total cost)"),
-        card_body(fill = FALSE, dt_wrap("opt_results_table", "480px")),
-        card_footer(downloadButton("download_optimiser", "Download optimiser results CSV"))
+        card_body(fill = FALSE,
+          tags$p(class = "text-muted small mb-2",
+            tags$strong("Binding path"), " -- which side of the schedule controlled campaign completion, ",
+            "and in what share of the simulated runs. ",
+            "The binding path controls the campaign finish date. Resource changes outside that path ",
+            "may reduce local queueing without shortening the overall campaign."),
+          dt_wrap("opt_results_table", "480px")),
+        card_footer(
+          downloadButton("download_optimiser", "Download optimiser results CSV", class = "me-2"),
+          downloadButton("download_optimiser_manifest", "Download run manifest (zip)",
+                         class = "btn-outline-primary",
+                         icon = icon("file-shield")),
+          tags$div(class = "small text-muted mt-2",
+            "The manifest bundle includes the run's inputs, assumptions, risk tables, and hashes -- ",
+            "enough to reproduce or audit this exact run later. See ", tags$strong("Run reproducibility"),
+            " above for a summary.")
+        )
       )
     ),
 
@@ -1653,6 +1671,7 @@ server <- function(input, output, session) {
         source(file.path(project_root, "R", "engine_core.R"))
         source(file.path(project_root, "R", "summaries.R"))
         source(file.path(project_root, "R", "report_pdf.R"))
+        source(file.path(project_root, "R", "optimiser_explain.R"))
         source(file.path(project_root, "R", "optimiser_cascade.R"))
         source(file.path(project_root, "R", "risk_library_engine.R"))
         source(file.path(project_root, "R", "optimiser_parallel.R"))
@@ -3654,6 +3673,13 @@ server <- function(input, output, session) {
   })
 
   optim_results <- reactiveVal(NULL)
+  # Phase 1 (auditability pass): snapshot of every value the reproducibility
+  # manifest describes, captured in the SAME reactive tick as the run itself
+  # -- not re-read from live reactives at export time, which could pick up
+  # sidebar edits made after the run finished (the "stale reactive" /
+  # "capturing defaults instead of active edited values" risks flagged in
+  # Phase 0). Downloading the manifest later reads only this snapshot.
+  optim_run_context <- reactiveVal(NULL)
 
   observeEvent(input$run_optimiser, {
     dat <- input_data()
@@ -3716,7 +3742,73 @@ server <- function(input, output, session) {
       NULL
     })
     optim_results(res)
+    if (!is.null(res)) {
+      optim_run_context(list(
+        seed = as.integer(input$seed),
+        operation_modes = unique(grid$operation_mode),
+        scheduling_mode = input$pre_frac_scheduling,
+        n_wells = as.integer(input$n_wells),
+        screen_iterations = as.integer(input$opt_screen_iter),
+        refine_iterations = 600L,
+        top_n_refine = 5L,
+        scenario_grid = grid,
+        resource_search_ranges = list(
+          frac_fleets = input$opt_frac_range, wireline_units = input$opt_wl_range,
+          ct_units = input$opt_ct_range, milling_units = input$opt_mill_range,
+          testing_units = input$opt_test_range
+        ),
+        day_rates = list(
+          frac_fleet = input$frac_fleet_cost, wireline = input$wireline_cost,
+          ct = input$ct_cost, milling = input$milling_cost, testing_unit = input$testing_unit_cost
+        ),
+        active_parameters_df = current_locked_rows(),
+        active_risks_df = current_risk_rows(),
+        risk_consequence_df = dat$risk_library,
+        historical_wells = dat$historical,
+        using_synthetic = dat$using_synthetic,
+        historical_filename = if (is.null(input$historical_file)) NA_character_ else input$historical_file$name,
+        excluded_well_ids = dat$excluded_well_ids,
+        # The optimiser currently runs on dat$historical directly (unlike the
+        # main "Run simulation" handler, which prefers
+        # bayes_merged_wells_rv() %||% dat$historical) -- a Bayesian update is
+        # never applied to optimiser runs today. Recorded honestly as FALSE
+        # rather than fixed here: changing which historical data feeds the
+        # optimiser is an optimiser-behavior change, out of scope for this
+        # auditability-only pass. See the accompanying investigation report.
+        bayesian_applied = FALSE
+      ))
+    }
   })
+
+  # Phase 4 (auditability pass): tie-group badge + expandable alternatives
+  # for one scenario. `res_ties` must already have tie_group_id/tie_group_size/
+  # is_tie_representative from group_optimiser_ties(). Returns NULL if the
+  # scenario isn't part of a multi-row tie -- callers render nothing extra.
+  .tie_group_detail_ui <- function(res_ties, target_row) {
+    grp <- res_ties %>% filter(tie_group_id == target_row$tie_group_id) %>%
+      arrange(total_mobilisation_cost)
+    if (nrow(grp) <= 1) return(NULL)
+    tagList(
+      tags$span(class = "badge bg-secondary ms-2", sprintf("%d tied configurations", nrow(grp))),
+      tags$details(class = "mt-1",
+        tags$summary(class = "small text-muted", style = "cursor: pointer;",
+                     "Show tied alternatives (same P50, different cost)"),
+        tags$ul(class = "small mb-0 mt-1",
+          lapply(seq_len(nrow(grp)), function(i) {
+            r <- grp[i, ]
+            e <- explain_optimiser_scenario(res_ties, which(res_ties$scenario_id == r$scenario_id &
+                                                             res_ties$stage == r$stage)[1])
+            tags$li(
+              sprintf("%s, %s, %s", r$config_label, fmt_money_short(r$total_mobilisation_cost),
+                      if (isTRUE(r$pareto)) "Pareto" else "dominated"),
+              if (!isTRUE(r$is_tie_representative))
+                tags$div(class = "text-muted", style = "padding-left: 1em;", paste("Reason:", e$short))
+            )
+          })
+        )
+      )
+    )
+  }
 
   output$opt_recommendation <- renderUI({
     res <- optim_results()
@@ -3724,8 +3816,11 @@ server <- function(input, output, session) {
     rec <- res %>% filter(recommended) %>% slice(1)
     if (nrow(rec) == 0) return(p("No recommendation available."))
     fast <- res %>% filter(fastest) %>% slice(1)
+    res_ties <- group_optimiser_ties(res)
+    rec_ties <- res_ties %>% filter(recommended) %>% slice(1)
+    fast_ties <- res_ties %>% filter(fastest) %>% slice(1)
     tagList(
-      h4(class = "mb-1", rec$config_label),
+      h4(class = "mb-1", rec$config_label, .tie_group_detail_ui(res_ties, rec_ties)),
       p(tags$strong(sprintf("P50: %.0f days | Total cost: %s | Idle: %s",
                             rec$p50_days, fmt_money_short(rec$total_mobilisation_cost),
                             fmt_money_short(rec$idle_cost))),
@@ -3735,6 +3830,8 @@ server <- function(input, output, session) {
                 input$seed),
         sprintf("Fastest option: %s at %.0f days for %s.",
                 fast$config_label, fast$p50_days, fmt_money_short(fast$total_mobilisation_cost))),
+      div(class = "mb-2",
+        tags$strong("Fastest option"), .tie_group_detail_ui(res_ties, fast_ties)),
       div(class = "alert alert-info mt-2 p-2",
         tags$small(
           tags$strong("Why might the Overview P50 differ after applying these settings?"),
@@ -3974,7 +4071,10 @@ server <- function(input, output, session) {
   output$opt_results_table <- renderDT({
     res <- optim_results()
     req(res)
-    res %>%
+    # annotate_optimiser_explanations() needs the FULL results frame (it
+    # looks up tie groups and single-resource neighbors across all rows),
+    # so it runs before transmute() narrows to display columns.
+    annotate_optimiser_explanations(res) %>%
       transmute(
         Scenario = config_label,
         Stage = stage,
@@ -3984,6 +4084,12 @@ server <- function(input, output, session) {
         `Idle cost` = idle_cost,
         `Spread $/day` = spread_rate_per_day,
         `Total cost` = total_mobilisation_cost,
+        `Binding path` = ifelse(
+          is.na(binding_path_primary), "",
+          sprintf("%s, %.0f%%", binding_path_primary,
+                  100 * pmax(frac_path_bind_pct, post_frac_bind_pct, na.rm = TRUE))
+        ),
+        Why = why,
         Pareto = ifelse(pareto, "Yes", ""),
         Flag = case_when(recommended ~ "RECOMMENDED", fastest ~ "Fastest", TRUE ~ "")
       ) %>%
@@ -3998,6 +4104,126 @@ server <- function(input, output, session) {
     content = function(file) {
       req(optim_results())
       write_csv(optimiser_export_headers(optim_results()), file)
+    }
+  )
+
+  # Phase 1 (auditability pass): the manifest itself, built once per run and
+  # cached by Shiny's reactive semantics -- so the "Run reproducibility"
+  # panel (Phase 5) and the download handler below always describe the
+  # exact same manifest (same run_id/timestamp/hashes), never two separately
+  # regenerated ones with different timestamps.
+  optim_manifest_r <- reactive({
+    req(optim_results(), optim_run_context())
+    ctx <- optim_run_context()
+    build_optimiser_run_manifest(
+      project_root = project_root,
+      seed = ctx$seed, operation_modes = ctx$operation_modes,
+      scheduling_mode = ctx$scheduling_mode, n_wells = ctx$n_wells,
+      screen_iterations = ctx$screen_iterations, refine_iterations = ctx$refine_iterations,
+      top_n_refine = ctx$top_n_refine,
+      results = optim_results(), scenario_grid = ctx$scenario_grid,
+      resource_search_ranges = ctx$resource_search_ranges, day_rates = ctx$day_rates,
+      active_parameters_df = ctx$active_parameters_df, active_risks_df = ctx$active_risks_df,
+      risk_consequence_df = ctx$risk_consequence_df,
+      historical_wells = ctx$historical_wells, using_synthetic = ctx$using_synthetic,
+      historical_filename = ctx$historical_filename,
+      excluded_well_ids = ctx$excluded_well_ids, bayesian_applied = ctx$bayesian_applied
+    )
+  })
+
+  # Phase 5: expandable "Run reproducibility" summary near the recommendation.
+  output$opt_reproducibility_panel <- renderUI({
+    m <- tryCatch(optim_manifest_r(), error = function(e) NULL)
+    if (is.null(m)) return(NULL)
+    complete <- m$run_identity$app_version != "unknown" && m$run_identity$git_commit != "unknown"
+    tags$details(class = "mt-3",
+      tags$summary(class = "fw-bold", style = "cursor: pointer;", "Run reproducibility"),
+      tags$div(class = "small mt-2",
+        tags$table(class = "table table-sm mb-2",
+          tags$tbody(
+            tags$tr(tags$td("Run ID"), tags$td(tags$code(m$run_identity$run_id))),
+            tags$tr(tags$td("App version"), tags$td(m$run_identity$app_version)),
+            tags$tr(tags$td("Git commit"), tags$td(tags$code(m$run_identity$git_commit))),
+            tags$tr(tags$td("Seed"), tags$td(m$simulation_controls$seed)),
+            tags$tr(tags$td("Screen / refine iterations"),
+                    tags$td(sprintf("%s / %s", m$simulation_controls$screen_iterations,
+                                    m$simulation_controls$refine_iterations))),
+            tags$tr(tags$td("Historical data"),
+                    tags$td(sprintf("%s (%d wells)", m$historical_data$source, m$historical_data$row_count))),
+            tags$tr(tags$td("Input manifest hash"),
+                    tags$td(tags$code(paste0(substr(m$hashes$manifest_hash, 1, 16), "...")))),
+            tags$tr(tags$td("Export manifest"), tags$td("Available -- see \"Download run manifest\" below"))
+          )
+        ),
+        if (complete) {
+          tags$p(class = "text-success mb-0",
+            "This run includes a complete input manifest. The same application version, seed, ",
+            "input tables, and optimiser settings can be used to reproduce it.")
+        } else {
+          tags$p(class = "text-warning mb-0",
+            "This run's manifest is incomplete: ",
+            if (m$run_identity$git_commit == "unknown") "the git commit could not be determined (no git repository found at the app's working directory). " else "",
+            if (m$run_identity$app_version == "unknown") "the app version could not be determined (DESCRIPTION not found). " else "",
+            "Exact code-version reproducibility cannot be guaranteed, though the input tables and settings above are still fully captured.")
+        }
+      )
+    )
+  })
+
+  # Phase 1 (auditability pass): reproducibility manifest bundle. A SEPARATE
+  # download from download_optimiser above -- the original single-CSV export
+  # is left byte-for-byte unchanged (no schema change to it at all) so
+  # nothing that already parses that file breaks.
+  output$download_optimiser_manifest <- downloadHandler(
+    filename = function() paste0("optimiser_run_manifest_", Sys.Date(), ".zip"),
+    content = function(file) {
+      req(optim_results(), optim_run_context())
+      ctx <- optim_run_context()
+      manifest <- optim_manifest_r()
+
+      tmpdir <- tempfile("optimiser_manifest_")
+      dir.create(tmpdir)
+      on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+      # JSON manifest -- fails gracefully to CSV-only if jsonlite is somehow
+      # unavailable (it's a required Import -- see DESCRIPTION -- so this is
+      # a defensive fallback, not an expected path).
+      json_ok <- tryCatch({
+        writeLines(as.character(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE,
+                                                  digits = NA, null = "null")),
+                   file.path(tmpdir, "optimiser_run_manifest.json"))
+        TRUE
+      }, error = function(e) FALSE)
+      if (!json_ok) {
+        showNotification("JSON manifest unavailable -- exporting CSV files only.", type = "warning", duration = 8)
+      }
+
+      write_csv(manifest_to_flat_df(manifest), file.path(tmpdir, "optimiser_run_inputs.csv"))
+      write_csv(
+        (ctx$active_parameters_df %||% tibble()) %>% sanitize_csv_text_cols(c("variable", "simulation_impact")),
+        file.path(tmpdir, "optimiser_active_parameters.csv"))
+      write_csv(
+        (ctx$active_risks_df %||% tibble()) %>% sanitize_csv_text_cols(c("variable", "simulation_impact")),
+        file.path(tmpdir, "optimiser_active_risks.csv"))
+      write_csv(
+        (ctx$risk_consequence_df %||% tibble()) %>%
+          sanitize_csv_text_cols(c("risk_name", "affected_resource", "risk_notes", "scenario_notes")),
+        file.path(tmpdir, "optimiser_risk_consequences.csv"))
+      if (length(ctx$excluded_well_ids) > 0) {
+        write_csv(tibble(excluded_well_id = ctx$excluded_well_ids),
+                  file.path(tmpdir, "optimiser_historical_exclusions.csv"))
+      }
+      write_csv(optimiser_export_headers(optim_results()), file.path(tmpdir, "optimiser_results.csv"))
+
+      files_to_zip <- list.files(tmpdir, full.names = TRUE)
+      if (requireNamespace("zip", quietly = TRUE)) {
+        zip::zip(zipfile = file, files = basename(files_to_zip), root = tmpdir)
+      } else {
+        oldwd <- getwd()
+        on.exit(setwd(oldwd), add = TRUE)
+        setwd(tmpdir)
+        utils::zip(zipfile = file, files = basename(files_to_zip))
+      }
     }
   )
 

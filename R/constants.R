@@ -33,3 +33,35 @@ DEFAULT_DAY_RATES <- list(
   milling       = 18000,
   testing_unit  = 12000
 )
+
+# -----------------------------------------------------------------------------
+# Optimiser auditability/explainability thresholds (R/optimiser_manifest.R,
+# R/optimiser_explain.R, R/optimiser_cascade.R, R/optimiser_parallel.R).
+# Named here, not inline, so every consumer reads the same cutoff and the
+# app's explanatory text can quote these numbers directly without risking
+# drift (same pattern as REC_DECISION_THRESHOLDS / BAYES_DECISION_THRESHOLDS).
+# -----------------------------------------------------------------------------
+
+# Binding-path classification (Phase 2). A scenario's campaign duration is
+# max(frac-path days, post-frac completion days) -- computed once per
+# iteration inside simulate_campaign_detailed() and already summarised per
+# scenario by score_run(). "Dominant" means that side governs completion in
+# at least this fraction of the scenario's iterations; "tie band" flags a
+# near-50/50 split as genuinely contested rather than arbitrarily Mixed.
+OPTIMISER_BINDING_DOMINANT_THRESHOLD <- 0.70
+OPTIMISER_BINDING_TIE_BAND <- 0.05
+
+# Scenario-explanation thresholds (Phase 3).
+#   TIE_EPS: two P50s are "the same result" (not just close) below this gap,
+#     in days -- used for both exact-tie detection (Phase 4) and the "added
+#     resource never used" explanation's P50-unchanged test.
+#   NEGLIGIBLE_DAYS: a P50 change smaller than this is not called a
+#     "campaign improvement" even when it is technically nonzero (guards
+#     against reading Monte Carlo noise as a real result).
+#   UNIT_USE_UTIL_DROP_PP: minimum P90-utilization drop (percentage points)
+#     for an added unit to count as "meaningfully used" -- below this, the
+#     extra capacity's utilization signature looks the same as if it had
+#     never been added.
+OPTIMISER_TIE_EPS <- 1e-6
+OPTIMISER_NEGLIGIBLE_DAYS <- 0.5
+OPTIMISER_UNIT_USE_UTIL_DROP_PP <- 0.05
