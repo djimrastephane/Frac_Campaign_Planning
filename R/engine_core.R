@@ -704,9 +704,18 @@ synthetic_historical_wells <- function(n = 30, seed = 42) {
 # schedule_post_frac_milling() below (preallocated vectors, one pass over
 # wells in arrival order, earliest-available-unit assignment).
 #
-# Per well, in order: CT -> Wireline -> Frac.
-#   CT:       independent timeline -- naturally runs in parallel with the
-#             previous well's frac, since nothing ties ct_avail to frac_avail.
+# Per well, in order: Tree -> CT -> Wireline -> Frac.
+#   Tree:     a well can't start CT cleanout until it has its own frac tree
+#             rigged up (CT/cement-eval run through the wellhead pressure
+#             control equipment), and the tree stays occupied by that well
+#             for the whole CT-cleanout-through-frac-pumping span -- it isn't
+#             freed for the next well until THIS well's frac finishes. With
+#             frac_trees = Inf (the default for direct calls to this
+#             function), there's always a free tree and this collapses back
+#             to the pre-v19 CT-independent-of-frac behavior below.
+#   CT:       otherwise independent timeline -- naturally runs in parallel
+#             with the previous well's frac (up to frac_trees wells deep),
+#             since nothing else ties ct_avail to frac_avail.
 #   Wireline: assigned to whichever unit (across the whole pool) is
 #             earliest-free, NOT tied to "this well's own pace" -- a unit
 #             that finished well i-1 early can start well i+1 immediately.
@@ -721,7 +730,10 @@ synthetic_historical_wells <- function(n = 30, seed = 42) {
 # (zipper wellhead-swap overhead) are NOT modeled here as queueing effects --
 # they're baked into frac_workload_days before it reaches this function,
 # exactly as in the formula path. well_transition_days is likewise already
-# folded into frac_workload_days (frac-fleet downtime).
+# folded into frac_workload_days (frac-fleet downtime). Tree *capacity*
+# (how many wells can be mid-pipeline at once) is a separate, additive
+# effect handled by tree_avail below -- it doesn't double-count the swap-delay
+# duration inflation already baked into frac_workload_days.
 #
 # Returns one row per well (in well_index order) with start/finish times for
 # each resource, plus per-resource busy-time totals for the summary rollup.
@@ -731,7 +743,8 @@ schedule_pre_frac <- function(well_order_index,
                               frac_workload_days,
                               ct_units,
                               wireline_units,
-                              frac_fleets) {
+                              frac_fleets,
+                              frac_trees = Inf) {
   n <- length(well_order_index)
   if (n == 0) {
     return(list(
@@ -743,7 +756,8 @@ schedule_pre_frac <- function(well_order_index,
       total_wireline_capacity_wait_days = 0,
       total_ct_caused_wait_days = 0,
       total_ct_queueing_wait_days = 0,
-      total_ct_duration_floor_wait_days = 0
+      total_ct_duration_floor_wait_days = 0,
+      total_tree_wait_days = 0
     ))
   }
 
@@ -754,6 +768,15 @@ schedule_pre_frac <- function(well_order_index,
   ct_avail       <- rep(0, ct_units)
   wireline_avail <- rep(0, wireline_units)
   frac_avail     <- rep(0, frac_fleets)
+
+  # Tree occupancy: a well claims one tree slot from CT start through its own
+  # frac finish (see header comment). frac_trees = Inf (the default) means
+  # "always a free tree" -- skip the gate entirely rather than allocate an
+  # infinite-length vector.
+  tree_gated <- is.finite(frac_trees)
+  if (tree_gated) {
+    tree_avail <- rep(0, max(1L, as.integer(round(frac_trees))))
+  }
 
   v_well_index    <- integer(n)
   v_ct_start      <- numeric(n)
@@ -769,13 +792,24 @@ schedule_pre_frac <- function(well_order_index,
   v_ct_caused_wait_days <- numeric(n)
   v_ct_queueing_wait_days <- numeric(n)
   v_ct_duration_floor_wait_days <- numeric(n)
+  v_tree_wait_days <- numeric(n)
 
   for (pos in seq_len(n)) {
     i <- well_order_index[pos]
 
-    # --- CT: earliest-available unit, independent of frac/wireline timelines.
+    # --- CT: earliest-available unit, gated on this well's own tree slot
+    # freeing up (a well can't start CT cleanout without its own frac tree
+    # rigged up -- see header comment).
     ct_unit <- which.min(ct_avail)
-    ct_start <- ct_avail[ct_unit]
+    ct_avail_before <- ct_avail[ct_unit]
+    if (tree_gated) {
+      tree <- which.min(tree_avail)
+      tree_avail_before <- tree_avail[tree]
+      ct_start <- max(ct_avail_before, tree_avail_before)
+      v_tree_wait_days[pos] <- max(0, tree_avail_before - ct_avail_before)
+    } else {
+      ct_start <- ct_avail_before
+    }
     ct_finish <- ct_start + ct_workload_days[pos]
     ct_avail[ct_unit] <- ct_finish
 
@@ -824,6 +858,9 @@ schedule_pre_frac <- function(well_order_index,
     frac_finish_unpaced <- frac_start + frac_workload_days[pos]
     frac_finish <- max(frac_finish_unpaced, wl_finish)
     frac_avail[fleet] <- frac_finish
+    # This well's tree isn't free for the next occupant until its own frac
+    # finishes -- see header comment.
+    if (tree_gated) tree_avail[tree] <- frac_finish
 
     v_well_index[pos]      <- i
     v_ct_start[pos]        <- ct_start
@@ -866,7 +903,8 @@ schedule_pre_frac <- function(well_order_index,
     wireline_capacity_wait_days = v_wireline_capacity_wait_days,
     ct_caused_wait_days = v_ct_caused_wait_days,
     ct_queueing_wait_days = v_ct_queueing_wait_days,
-    ct_duration_floor_wait_days = v_ct_duration_floor_wait_days
+    ct_duration_floor_wait_days = v_ct_duration_floor_wait_days,
+    tree_wait_days = v_tree_wait_days
   )
 
   list(
@@ -890,7 +928,11 @@ schedule_pre_frac <- function(well_order_index,
     # dedicated CT unit per well (CT's own task duration exceeding
     # wireline+frac's pace). These two sum exactly to total_ct_caused_wait_days.
     total_ct_queueing_wait_days = sum(v_ct_queueing_wait_days),
-    total_ct_duration_floor_wait_days = sum(v_ct_duration_floor_wait_days)
+    total_ct_duration_floor_wait_days = sum(v_ct_duration_floor_wait_days),
+    # How much of total_ct_caused_wait_days (folded into wireline/frac start
+    # via ct_start above) was specifically tree availability, not CT-unit
+    # queueing -- 0 whenever frac_trees = Inf.
+    total_tree_wait_days = sum(v_tree_wait_days)
   )
 }
 
@@ -1615,7 +1657,8 @@ simulate_campaign_detailed <- function(
         frac_workload_days = well_df$frac_workload_days,
         ct_units = ct_units,
         wireline_units = wireline_units,
-        frac_fleets = frac_fleets
+        frac_fleets = frac_fleets,
+        frac_trees = frac_trees
       )
       event_frac_finish_day <- pf$well_schedule$frac_finish_day
       well_df <- well_df %>%
@@ -1642,7 +1685,11 @@ simulate_campaign_detailed <- function(
           # ct_duration_floor_wait_days comment). Without this, "add CT
           # capacity" advice would overstate what more units can fix.
           ct_queueing_wireline_wait_days = pf$well_schedule$ct_queueing_wait_days,
-          ct_duration_floor_wireline_wait_days = pf$well_schedule$ct_duration_floor_wait_days
+          ct_duration_floor_wireline_wait_days = pf$well_schedule$ct_duration_floor_wait_days,
+          # How much of this well's CT start was delayed by waiting on its
+          # own frac tree slot to free up (see schedule_pre_frac()'s header
+          # comment) -- 0 whenever frac_trees is effectively unconstrained.
+          tree_wait_days = pf$well_schedule$tree_wait_days
         )
       total_frac_related_days <- max(event_frac_finish_day)
     } else {
@@ -1651,11 +1698,14 @@ simulate_campaign_detailed <- function(
       # wireline_readiness_delay_days to a single zipper-only estimate with
       # no CT/wireline split) -- NA, not 0, so it can't be misread as "CT
       # never causes wireline wait under the formula model" when really
-      # the formula just doesn't compute this distinction at all.
+      # the formula just doesn't compute this distinction at all. Tree-slot
+      # occupancy is likewise an event-mode-only concept -- the formula path
+      # never gates CT on frac_trees.
       well_df$wireline_capacity_wait_days <- NA_real_
       well_df$ct_caused_wireline_wait_days <- NA_real_
       well_df$ct_queueing_wireline_wait_days <- NA_real_
       well_df$ct_duration_floor_wireline_wait_days <- NA_real_
+      well_df$tree_wait_days <- NA_real_
     }
 
     # Pass-1 campaign duration = frac critical path (milling excluded here).
@@ -1778,6 +1828,10 @@ simulate_campaign_detailed <- function(
         sum(well_df$ct_queueing_wireline_wait_days, na.rm = TRUE) else NA_real_,
       total_ct_duration_floor_wireline_wait_days = if (pre_frac_scheduling == "event")
         sum(well_df$ct_duration_floor_wireline_wait_days, na.rm = TRUE) else NA_real_,
+      # NA under the formula model -- it never gates CT on frac_trees, see
+      # the tree_wait_days comment above.
+      total_tree_wait_days = if (pre_frac_scheduling == "event")
+        sum(well_df$tree_wait_days, na.rm = TRUE) else NA_real_,
       total_ct_primary_workload_days = total_ct_primary_days,
       total_ct_workload_days = total_ct_primary_days + ct_milling_support_ct_days,
       total_milling_workload_days = total_milling_gross,
@@ -1883,7 +1937,7 @@ simulate_campaign_detailed <- function(
           temp_log_days, wireline_stage_readiness_days,
           wireline_fleet_days, wireline_readiness_delay_days,
           wireline_capacity_wait_days, ct_caused_wireline_wait_days,
-          ct_queueing_wireline_wait_days, ct_duration_floor_wireline_wait_days, ct_workload_days,
+          ct_queueing_wireline_wait_days, ct_duration_floor_wireline_wait_days, tree_wait_days, ct_workload_days,
           milling_days_gross, risk_delay_days, frac_related_days, frac_release_day,
           milling_start_day, milling_finish_day, milling_resource, flowback_start_day, flowback_finish_day,
           frac_tree_constraint_delay_days, is_first_on_pad, well_transition_days, wireline_rework_days, extra_wireline_runs,

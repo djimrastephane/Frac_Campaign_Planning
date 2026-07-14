@@ -395,15 +395,23 @@ ui <- page_sidebar(
           "formula: divides each well's CT/wireline/frac workload by the ",
           "resource count -- kept as a faster, simpler legacy option for ",
           "comparison."),
+        # Frac trees gate the whole CT-cleanout -> cement-eval -> wireline ->
+        # frac pipeline (Resource queue model): a well can't start CT
+        # cleanout without its own tree rigged up, and the tree isn't free
+        # for the next well until this one's frac finishes. That applies in
+        # every mode, so unlike the zipper-only inputs below, this stays
+        # visible regardless of operation_mode.
+        numericInput("frac_trees", "Frac trees available", value = 2, min = 1, max = 10, step = 1),
+        helpText("Each tree lets one well occupy the CT cleanout-through-frac ",
+                 "pipeline at a time (Resource queue model). 2+ required for ",
+                 "zipper; 3 also lowers zipper swap delay (~5%), 4+ further (~10%)."),
         # Zipper-only inputs: have no effect on a Conventional-only run (the
-        # engine only applies tree efficiency / swap delay when is_zipper),
-        # so hide them when the user has picked Conventional specifically --
+        # engine only applies pump-speed / swap-delay when is_zipper), so
+        # hide them when the user has picked Conventional specifically --
         # but keep them visible for "Compare both", since that mode still
         # runs a Zipper pass that uses them.
         conditionalPanel(
           condition = "input.operation_mode != 'Conventional'",
-          numericInput("frac_trees", "Frac trees available", value = 2, min = 1, max = 10, step = 1),
-          helpText("2 = basic zipper. 3 = lower swap delay (~5%). 4+ = further reduction (~10%)."),
           sliderInput("zipper_efficiency", "Zipper execution factor",
                       min = 0.5, max = 1.0, value = 0.75, step = 0.05),
           helpText("0.75 means frac execution is 25% faster than conventional."),

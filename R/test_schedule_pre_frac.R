@@ -256,5 +256,51 @@ chk(abs(r11$total_ct_queueing_wait_days) < 1e-9,
 chk(abs(r11$total_ct_duration_floor_wait_days - r11$total_ct_caused_wait_days) < 1e-9,
     "with zero queueing, the entire ct_caused_wait_days is correctly attributed to the duration floor")
 
+# -- 14. Frac tree gating (frac_trees param): a well's own tree is not free
+# for the next well until this well's frac finishes -- distinct from CT's
+# own unit queueing, which frees up as soon as CT work itself is done. Reuse
+# r6's setup (well 1: long frac, well 2: short frac) where CT alone would let
+# well 2 start CT at t=3 right after well 1's CT finishes. With frac_trees=1,
+# well 2 cannot start CT until well 1's tree frees at its frac finish (t=20)
+# -- fully serializing the two wells despite ample CT/wireline/frac capacity.
+r12 <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(3, 3), wireline_workload_days = c(0, 0), frac_workload_days = c(20, 1),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1, frac_trees = 1
+)
+chk(r12$well_schedule$ct_start_day[2] == 20,
+    "frac_trees=1: well 2's CT cannot start until well 1's tree frees at well 1's frac finish (t=20), not CT's own t=3")
+chk(r12$well_schedule$tree_wait_days[2] == 17,
+    "frac_trees=1: well 2's tree wait is 20 - 3 = 17 (tree-caused, beyond CT's own queueing position)")
+chk(r12$total_tree_wait_days == 17,
+    "total_tree_wait_days is the exact sum of the per-well tree waits (0 + 17)")
+chk(r12$well_schedule$tree_wait_days[1] == 0,
+    "the first well never waits on a tree (nothing occupies it yet)")
+
+# -- 15. frac_trees left at its default (Inf, i.e. unconstrained) must
+# reproduce r6's untouched CT-independent-of-frac behavior exactly -- proves
+# the tree gate is fully opt-in and doesn't perturb existing callers that
+# don't pass frac_trees. Likewise, frac_trees >= n_wells (ample trees, no
+# contention possible) must also reproduce that same unconstrained baseline,
+# since with as many trees as wells no well can ever wait on one.
+r13_default <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(3, 3), wireline_workload_days = c(0, 0), frac_workload_days = c(20, 1),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1
+)
+r13_ample <- schedule_pre_frac(
+  well_order_index = 1:2,
+  ct_workload_days = c(3, 3), wireline_workload_days = c(0, 0), frac_workload_days = c(20, 1),
+  ct_units = 1, wireline_units = 1, frac_fleets = 1, frac_trees = 2
+)
+chk(identical(r13_default$well_schedule$ct_start_day, r6$well_schedule$ct_start_day),
+    "omitting frac_trees (default Inf) reproduces r6's CT-independent-of-frac schedule exactly")
+chk(all(r13_default$well_schedule$tree_wait_days == 0),
+    "with frac_trees = Inf, tree_wait_days is always 0")
+chk(identical(r13_ample$well_schedule$ct_start_day, r13_default$well_schedule$ct_start_day),
+    "frac_trees = 2 (>= n_wells = 2, so never contended) reproduces the same schedule as the Inf baseline")
+chk(r13_ample$total_tree_wait_days == 0,
+    "with ample trees (>= n_wells), total_tree_wait_days is 0")
+
 cat(sprintf("\n==== %s ====\n", if (ok) "ALL PROPERTY CHECKS PASS" else "FAILURES ABOVE"))
 if (!ok) quit(status = 1)

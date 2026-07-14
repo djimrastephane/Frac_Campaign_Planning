@@ -9,9 +9,9 @@ This document covers the modelled equipment relationships and operation sequence
 Key dependencies as modelled:
 
 - **Wireline gates frac.** A stage cannot pump until wireline has perforated and set the plug. In zipper mode, if wireline workload per well exceeds frac workload per well, the frac fleet waits (`wireline_readiness_delay_days`) and the idle cost is reported.
-- **CT cleanout runs in parallel with frac (conventional).** CT preps well N+1 during well N's frac execution. CT only gates the campaign if it becomes the pacing resource (i.e. CT workload per well > frac+wireline workload per well). See Conventional Frac Execution Logic below.
+- **CT cleanout runs in parallel with frac (conventional), up to the frac tree count.** CT preps well N+1 during well N's frac execution, but only as many wells can be mid-pipeline at once as there are frac trees (see next bullet) — with `frac_trees = 1`, CT for well N+1 can't start until well N's frac fully finishes. CT only gates the campaign if it becomes the pacing resource (i.e. CT workload per well > frac+wireline workload per well) once tree availability is accounted for. See Conventional Frac Execution Logic below.
 - **Cement evaluation runs offline when a spare wireline unit exists.** If `wireline_units >= 2`, cement evaluation is always run offline (spare unit available while primary unit perforates). With a single wireline unit, cement evaluation offline probability is set in the assumptions CSV (default 80%).
-- **Frac trees gate zipper.** Zipper requires 2 trees minimum. With exactly 2, each inter-well transition incurs a swap delay; a 3rd tree reduces transition waiting (~5%), 4+ slightly more (~10%, diminishing).
+- **Frac trees gate the whole CT-cleanout-through-frac pipeline, in both modes.** CT cleanout and cement evaluation run through the wellhead pressure control equipment, so a well can't start CT cleanout without its own frac tree rigged up — and that tree isn't free for the next well until this well's frac pumping finishes. `frac_trees` sets how many wells can be mid-pipeline (CT start → frac finish) at once. Zipper additionally requires 2 trees minimum for the pairwise transition itself; with exactly 2, each inter-well transition also incurs a swap delay, a 3rd tree reduces that transition waiting (~5%), 4+ slightly more (~10%, diminishing). This tree-slot gating is modelled in the Resource-queue scheduling model (the default); the legacy Workload-formula model does not gate CT on tree count.
 - **Milling follows frac** and is scheduled discretely. Milling cannot start until a well is fully fraced AND a milling unit AND testing unit are both free. Wells are scheduled in frac-release order; later wells can begin milling while earlier wells are still in flowback.
 - **CT / cleanout is separate from milling.** CT cleanout is pre-frac well intervention. Milling is post-frac plug drill-out on a dedicated milling spread. These are tracked as separate resources with separate utilization. Use "Allow CT to support milling" only if your CT unit genuinely does plug drill-outs.
 - **Testing follows milling** per well. Each well's flowback + testing window starts when its milling completes AND a testing unit is free. The testing unit holds the resource during both milling (test confirmation) and flowback (pressure monitoring).
@@ -25,11 +25,16 @@ CAMPAIGN PACING: Sequential well-by-well. One frac fleet, one wireline unit.
 
 For each well (N = 1 to 30):
 ─────────────────────────────────────────────────────────────────────────
-PRE-FRAC (CT / cleanout — runs in parallel with previous well's frac):
+PRE-FRAC (CT / cleanout — runs in parallel with previous well's frac,
+          up to frac_trees wells deep):
+  Frac tree slot                   claimed at CT start, held through frac finish
   CT cleanout / scraper run        ~0.5 d  (from assumptions CSV)
   Cement evaluation                ~1.0 d  (if running online; else 0)
-  Note: CT preps well N during well N-1's frac execution.
-        CT only delays campaign if ct_workload > (frac + wireline) per well.
+  Note: CT preps well N during well N-1's frac execution, but well N cannot
+        start CT until a frac tree is free (Resource-queue model only --
+        the legacy Workload-formula model does not gate this).
+        CT only delays campaign if ct_workload > (frac + wireline) per well
+        once tree availability is accounted for.
 
 FRAC STAGE LOOP (per stage, wireline then frac, sequential):
   Wireline: perforate stage N      time/stage (sidebar)
@@ -114,9 +119,15 @@ WIRELINE CONSTRAINT:
     Wireline waits between wells → no frac idle cost
 
 FRAC TREE CONSTRAINT:
-  2 trees: every A→B transition costs swap_delay_hours ÷ 24 per well
-  3 trees: spare tree pre-positioned; swap delay reduced ~5%
-  4+ trees: further reduction ~10% (diminishing returns)
+  Capacity (Resource-queue model): each well holds a tree slot from its own
+  CT-cleanout start through its own frac finish. With exactly 2 trees this
+  is what makes the A/B pairing work at all -- a 3rd+ tree lets a 3rd well's
+  CT/cement-eval start prepping before A or B has finished fraccing.
+  Swap delay (both models): every A→B transition also costs an execution-
+  time penalty on top of capacity --
+    2 trees: every A→B transition costs swap_delay_hours ÷ 24 per well
+    3 trees: spare tree pre-positioned; swap delay reduced ~5%
+    4+ trees: further reduction ~10% (diminishing returns)
 ```
 
 ---
@@ -155,6 +166,8 @@ Scaling before compounding matters: scaling the already-compounded per-well prob
 ---
 
 ## Campaign Duration Formula
+
+*This section describes the legacy Workload-formula model's closed-form math. The default Resource-queue model (`schedule_pre_frac()`) computes the same per-well workloads below but schedules them against real CT/wireline/frac-fleet/frac-tree availability timelines instead of the `max()`/`Σ` approximations in PASS 1 — in particular it additionally gates each well's CT start on a frac tree being free (see the Frac trees bullet in the Equipment Relationship Map above), which this formula does not model.*
 
 ```
 ─── PER WELL ──────────────────────────────────────────────────────────────
@@ -232,7 +245,7 @@ campaign_days = max(frac_path_days, post_frac_completion)
 | Risk scope (per-stage vs per-well vs campaign-wide) | Scope column in assumptions CSV | `master_risks_assumptions.csv` |
 | Risk operational consequences | Add consequence override columns | `master_risks_assumptions.csv` |
 | Flowback duration | Flowback + testing min/max days | Sidebar > Resources |
-| Tree swap handling | Frac tree swap delay hours; frac trees available | Sidebar > Resources |
+| Frac tree capacity and swap handling | Frac trees available (CT-cleanout-through-frac slot count, both modes); frac tree swap delay hours (zipper-only) | Sidebar > Resources |
 | Different operation sequence | See Workflow tab in the app | Workflow tab |
 | New resource type | Code change required: add to resource vectors and workload formula | `R/engine_core.R` |
 

@@ -44,7 +44,7 @@ This project provides a data-driven framework for:
 - Campaign duration forecasting (P10 / P50 / P90)
 - Operational risk assessment with consequence propagation
 - Resource planning and bottleneck detection
-- Zipper frac evaluation, including frac tree constraints
+- Zipper frac evaluation, including frac tree capacity and swap-delay constraints (frac trees gate the CT-cleanout-through-frac pipeline in both operation modes)
 - Campaign acceleration and investment ranking
 - Constraint cascade analysis (sequential bottleneck resolution)
 - Automated optimum-scenario search (Pareto frontier)

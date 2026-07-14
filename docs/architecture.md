@@ -231,10 +231,11 @@ resource *contention*, not stage-by-stage timing (see README Limitations).
 flowchart TD
     subgraph prefrac ["Pre-frac — schedule_pre_frac() (event mode, default)"]
         ORDER["wells in sequence order"]
-        CT["CT cleanout: own availability timeline<br/>(naturally parallel with previous well's frac)"]
+        TREE["frac tree: earliest-free slot, both modes;<br/>claimed at CT start, held through this<br/>well's own frac finish"]
+        CT["CT cleanout: own availability timeline<br/>(parallel with previous well's frac,<br/>up to frac_trees wells deep)"]
         WL["wireline: earliest-available unit across the<br/>WHOLE pool — a unit finishing well i-1 early<br/>can start well i+1 immediately"]
         FR["frac: earliest-free fleet;<br/>cannot finish before its own wireline"]
-        ATTR["wait attribution per well:<br/>wireline-capacity wait vs CT-caused wait;<br/>CT-caused split into queueing (fixable by units)<br/>vs duration floor (not fixable by units)"]
+        ATTR["wait attribution per well:<br/>wireline-capacity wait vs CT-caused wait<br/>(further split into queueing/duration-floor)<br/>vs tree wait"]
     end
 
     subgraph postfrac ["Post-frac — schedule_post_frac_milling()"]
@@ -244,13 +245,13 @@ flowchart TD
         DONE["campaign end = max across all streams"]
     end
 
-    subgraph zipper ["Zipper-mode adjustments (applied to workloads, not queues)"]
+    subgraph zipper ["Zipper-mode adjustments (execution-time workload, not queues)"]
         ZF["pump-time factor (slider, default 0.75)"]
-        TS["frac-tree swap delay (2 trees);<br/>reduced ~5% at 3 trees, ~10% at 4+"]
+        TS["frac-tree SWAP DELAY (2 trees);<br/>reduced ~5% at 3 trees, ~10% at 4+ —<br/>on top of TREE's capacity gating above"]
         WT["within-pad transition halved"]
     end
 
-    ORDER --> CT --> WL --> FR --> ATTR
+    ORDER --> TREE --> CT --> WL --> FR --> ATTR
     FR --> REL --> MILL --> TEST --> DONE
     zipper -.-> prefrac
 ```
